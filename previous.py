@@ -1,29 +1,14 @@
 import numpy as np
 import pydicom
 from scipy.ndimage import zoom
-from pydicom.filereader import read_dataset
-from pydicom.uid import generate_uid
-from pydicom.dataset import Dataset
-from pydicom.sequence import Sequence
 import matplotlib.pyplot as plt
 from matplotlib.patches import Polygon
-import pandas as pd
 import os
-import scipy.ndimage
-from mpl_toolkits.mplot3d.art3d import Poly3DCollection
-import vtk
-import plotly.figure_factory as ff
-import plotly.io as pio
-import shapely
 from shapely import Point
-from shapely import polygons
 from shapely import within
 from shapely.geometry import Polygon, MultiPolygon
-from matplotlib.patches import Polygon as MplPolygon
-from matplotlib.collections import PatchCollection
 import statistics
 import time
-
 
 def find_file_with_prefix(folder_path, prefix):  # finding the name of RD/RS files from the RT folder
     for file_name in os.listdir(folder_path):
