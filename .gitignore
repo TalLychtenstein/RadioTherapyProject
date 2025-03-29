@@ -1,0 +1,10 @@
+*.dcm
+/DICOM files
+*.xml
+*.pyc
+/.idea
+*.png
+*.dcm
+/.idea
+*.docx
+*.pptx
