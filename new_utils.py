@@ -102,14 +102,23 @@ def extract_dose_data(RD_data):
         A dictionary containing:
         - "Scaling Factor": The dose grid scaling factor.
         - "Position": The (x, y, z) position of the dose grid in patient coordinates.
-        - "Spacing": The spacing between pixels in the dose grid.
-        - "Image": The actual pixel array representing the dose distribution.
+        - "Spacing": The spacing between voxels in the dose grid (z, y, x) in mm.
+        - "Volume": The 3D dose array in Gy units.
     """
+    pos_x, pos_y, pos_z = RD_data.ImagePositionPatient
+    spacing_x, spacing_y = RD_data.PixelSpacing
 
-    Dose_data = {"Position": RD_data.ImagePositionPatient,
-                 "Spacing": RD_data.PixelSpacing,
-                 "Volume": RD_data.pixel_array * RD_data.DoseGridScaling}
-    return Dose_data
+    offset_vector = RD_data.GridFrameOffsetVector
+    spacing_z = offset_vector[1] - offset_vector[0] if len(offset_vector) > 1 else 0.0
+
+    dose_volume = RD_data.pixel_array * RD_data.DoseGridScaling
+
+    return {
+        "Scaling Factor": RD_data.DoseGridScaling,
+        "Position": (float(pos_z), float(pos_y), float(pos_x)),
+        "Spacing": (float(spacing_z), float(spacing_y), float(spacing_x)),  # matches (z, y, x) shape
+        "Volume": dose_volume
+    }
 
 
 def extract_ROIs_data(RS_data):
@@ -145,7 +154,8 @@ def extract_ROIs_data(RS_data):
         ROI_Number = str(contour.ReferencedROINumber)
 
         # Define the ROI color to be the color of its contour (if not already set)
-        if "Color" in ROIs_contours_data['ROIs'][ROI_Number] and ROIs_contours_data['ROIs'][ROI_Number]["Color"] is None:
+        if "Color" in ROIs_contours_data['ROIs'][ROI_Number] and ROIs_contours_data['ROIs'][ROI_Number][
+            "Color"] is None:
             ROIs_contours_data['ROIs'][ROI_Number]["Color"] = getattr(contour, "ROIDisplayColor", None)
 
         # Extract Contour Data (dict of CT slice number and corresponding list of (x, y, z) contour points)
@@ -178,56 +188,64 @@ def load_CT_data(files_path):
         - "Spacing": The pixel spacing values.
         - "Image": The pixel array representing the CT image.
     """
+
     CT_data = {}
     CT_data['Slices'] = {}
+
+    # Extract z positions
+    z_positions = []
+
     min_z = np.inf
     for file_name in os.listdir(files_path):
         if file_name.startswith('CT'):
             CT_slice_data = pydicom.dcmread(os.path.join(files_path, file_name))
+
             slice_number = CT_slice_data.SOPInstanceUID
-            slice_position = CT_slice_data.ImagePositionPatient
-            pixel_spacing = CT_slice_data.PixelSpacing
+            pos_x, pos_y, pos_z = CT_slice_data.ImagePositionPatient
+            slice_position = (pos_z, pos_y, pos_x)
+            spacing_x, spacing_y = CT_slice_data.PixelSpacing
+            pixel_spacing = (spacing_y, spacing_x)
             pixel_array = CT_slice_data.pixel_array
+
             CT_data['Slices'][slice_number] = {"Position": slice_position,
                                                "Spacing": pixel_spacing,
                                                "Image": pixel_array}
+            z_positions.append(float(slice_position[0]))
 
             # Set total CT position and spacing to be the same as the slice with lowest Z index
-            if min_z > slice_position[2]:
-                min_z = slice_position[2]
+            if min_z > slice_position[0]:
+                min_z = slice_position[0]
                 CT_data['Position'] = slice_position
                 CT_data['Spacing'] = pixel_spacing
 
+    # Calculate spacing as average distance between z-values
+    z_diffs = np.diff(sorted(z_positions))
+    z_spacing = np.abs(np.mean(z_diffs))
+    CT_data['Spacing'] = [z_spacing] + list(CT_data['Spacing'])
+
+    # Create volume
+    CT_data['Volume'] = create_CT_volume(CT_data)
     return CT_data
 
 
-def resample_array(array, old_spacing, new_spacing, order=1):
+def resample_array(array, zoom_factors, order=1):
     """
     Resamples a 2D/3D NumPy array to a new spacing.
 
     Parameters:
         array: 2D/3D NumPy array
-        old_spacing: list or array of [y, x] spacing in mm
-        new_spacing: desired spacing [y, x] in mm
+        zoom_factors: desired zoom factors in [z, y, x]
         order: interpolation order (1 = linear, 0 = nearest for masks)
 
     Returns:
         resampled_volume: volume resampled to new spacing
     """
-
-    # Add fake z spacing to maintain same z-axis resolution
-    if array.ndim == 3:
-        old_spacing = [1] + list(old_spacing)
-        new_spacing = [1] + list(new_spacing)
-
-    zoom_factors = np.array(old_spacing) / np.array(new_spacing)
     resampled = scipy.ndimage.zoom(array, zoom=zoom_factors, order=order)
     return resampled
 
-
 def create_CT_volume(CT_data):
     # 1. Sort CT slices
-    CT_slices_data = [(slice_number, CT_data['Slices'][slice_number]["Position"][2]) for slice_number in
+    CT_slices_data = [(slice_number, CT_data['Slices'][slice_number]["Position"][0]) for slice_number in
                       CT_data['Slices']]
     CT_slices_data.sort(key=lambda s: s[1])
 
@@ -245,7 +263,7 @@ def create_CT_volume(CT_data):
     return CT_volume
 
 
-def match_Dose_to_CT(Dose_data, CT_data, scale_x, scale_y, offset_x, offset_y):
+def match_Dose_to_CT(Dose_data, CT_data, scales, offsets):
     """
     Aligns Dose images to the CT slice dimensions.
 
@@ -267,27 +285,27 @@ def match_Dose_to_CT(Dose_data, CT_data, scale_x, scale_y, offset_x, offset_y):
     numpy.ndarray
         A transformed 3D array of dose images aligned with the CT slice.
     """
-    num_slices = Dose_data["Volume"].shape[0]
+    scale_z, scale_y, scale_x = scales
+    offset_z, offset_y, offset_x = offsets
 
-    # Compute the combined transformation matrix (scaling + translation)
-    transformation_matrix = np.float32([
-        [scale_x, 0, offset_x],  # Scale X and shift X
-        [0, scale_y, offset_y]  # Scale Y and shift Y
+    # Build the 3D affine transformation matrix (rotation + scale)
+    affine_matrix = np.array([
+        [1 / scale_z, 0, 0],
+        [0, 1 / scale_y, 0],
+        [0, 0, 1 / scale_x]
     ])
 
-    # Determine new image shape
-    new_shape = (CT_data["Volume"].shape[1], CT_data["Volume"].shape[2])
+    # Note: affine_transform maps from output space to input space
+    offset = [-offset_z / scale_z, -offset_y / scale_y, -offset_x / scale_x]
 
-    # Apply transformation to all slices
-    transformed_images = np.zeros((num_slices, new_shape[0], new_shape[1]), dtype=np.float32)
-
-    for i in range(num_slices):
-        transformed_images[i] = cv2.warpAffine(Dose_data["Volume"][i].astype(np.float32),
-                                               transformation_matrix,
-                                               new_shape,
-                                               flags=cv2.INTER_LINEAR)
-
-    return transformed_images
+    # Apply the affine transformation
+    Dose_data["Volume"] = scipy.ndimage.affine_transform(
+        Dose_data["Volume"],
+        matrix=affine_matrix,
+        offset=offset,
+        output_shape=CT_data["Volume"].shape,
+        order=1  # Linear interpolation
+    )
 
 
 def preprocess_Dose_to_CT(Dose_data, CT_data):
@@ -305,22 +323,28 @@ def preprocess_Dose_to_CT(Dose_data, CT_data):
         The updated Dose_data dictionary with transformed images aligned to CT.
     """
     # Obtain Dose and CT Spacings and Positions to match between them.
-    Dose_x_spacing, Dose_y_spacing = Dose_data["Spacing"]
-    Dose_x_position, Dose_y_position, _ = Dose_data["Position"]
+    Dose_z_spacing, Dose_y_spacing, Dose_x_spacing = Dose_data["Spacing"]
+    Dose_z_position, Dose_y_position, Dose_x_position = Dose_data["Position"]
 
-    CT_x_spacing, CT_y_spacing = CT_data["Spacing"]
-    CT_x_position, CT_y_position, _ = CT_data["Position"]
+    CT_z_spacing, CT_y_spacing, CT_x_spacing = CT_data["Spacing"]
+    CT_z_position, CT_y_position, CT_x_position = CT_data["Position"]
 
     # Define scales
-    scale_x = Dose_x_spacing / CT_x_spacing
+    scale_z = Dose_z_spacing / CT_z_spacing
     scale_y = Dose_y_spacing / CT_y_spacing
+    scale_x = Dose_x_spacing / CT_x_spacing
+    scales = [scale_z, scale_y, scale_x]
 
     # Define offsets
-    offset_x = int((Dose_x_position - CT_x_position) / CT_x_spacing)
+    offset_z = int((Dose_z_position - CT_z_position) / CT_z_spacing)
     offset_y = int((Dose_y_position - CT_y_position) / CT_y_spacing)
+    offset_x = int((Dose_x_position - CT_x_position) / CT_x_spacing)
+    offsets = [offset_z, offset_y, offset_x]
 
     # Match Dose images to CT
-    Dose_data["Volume"] = match_Dose_to_CT(Dose_data, CT_data, scale_x, scale_y, offset_x, offset_y)
+    match_Dose_to_CT(Dose_data, CT_data, scales, offsets)
+    Dose_data["Spacing"] = CT_data["Spacing"]
+    Dose_data["Position"] = CT_data["Position"]
     return Dose_data
 
 
@@ -331,12 +355,13 @@ def get_CT_slice_by_slice_number(CT_data, slice_number):
 def get_CT_slice_by_z_index(CT_data, z_index):
     return CT_data['Volume'][z_index]
 
+
 def create_ROIs_volume(ROIs_data, CT_data):
     ROIs_volume = np.zeros_like(CT_data['Volume'])
 
     # Extract metadata for proper contour alignment
-    x_position, y_position, _ = CT_data["Position"]
-    x_spacing, y_spacing = CT_data["Spacing"]
+    z_position, y_position, x_position = CT_data["Position"]
+    z_spacing, y_spacing, x_spacing = CT_data["Spacing"]
 
     for ROI_number in ROIs_data['ROIs']:
         for CT_slice_number in ROIs_data['ROIs'][ROI_number]['CT Contours']:

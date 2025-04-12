@@ -312,7 +312,7 @@ def plot_Dose_on_CT(ct_volume, dose_volume, alpha=0.5):
     slider_axes = [
         plt.axes([0.25, 0.18, 0.5, 0.025]),  # Axial
         plt.axes([0.25, 0.12, 0.5, 0.025]),  # Coronal
-        plt.axes([0.25, 0.06, 0.5, 0.025])   # Sagittal
+        plt.axes([0.25, 0.06, 0.5, 0.025])  # Sagittal
     ]
     for i, view in enumerate(views):
         slider = Slider(slider_axes[i], f'{view.capitalize()} Slice', 0, shapes[view] - 1, valinit=0, valstep=1)
@@ -334,6 +334,7 @@ def plot_Dose_on_CT(ct_volume, dose_volume, alpha=0.5):
 
     plt.show()
 
+
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.widgets import Slider
@@ -341,17 +342,17 @@ import matplotlib.colors as mcolors
 import matplotlib.patches as mpatches
 from scipy.ndimage import binary_dilation
 
-def dilate_labeled_rois(roi_slice, iterations=1):
+
+def dilate_labeled_rois(roi_slice, iterations=3):
     """Dilate each ROI label individually."""
     dilated = np.zeros_like(roi_slice)
     unique_labels = np.unique(roi_slice)
     for label in unique_labels:
-        if label == 0:
-            continue  # skip background
         mask = roi_slice == label
         dilated_mask = binary_dilation(mask, iterations=iterations)
         dilated[dilated_mask] = label
     return dilated
+
 
 def plot_Dose_on_CT(CT_data, Dose_data, ROIs_data, alpha=0.5):
     fig, axes = plt.subplots(1, 3, figsize=(18, 6))
@@ -374,20 +375,14 @@ def plot_Dose_on_CT(CT_data, Dose_data, ROIs_data, alpha=0.5):
         'sagittal': lambda i: ROIs_data['Volume'][:, :, i]
     }
 
-    unique_rois = np.unique(ROIs_data['Volume'])
+    unique_rois = np.unique(ROIs_data['Volume'].astype(int))
     unique_rois = unique_rois[unique_rois != 0]
+    color_list = [plt.cm.tab20.colors[i % len(plt.cm.tab20.colors)] for i in range(len(unique_rois))]
 
-    base_colors = plt.cm.tab20.colors
-    color_list = [base_colors[i % len(base_colors)] for i in range(len(unique_rois))]
-
-    # color_list = []
     roi_patches = []
     for i, label in enumerate(unique_rois):
-        name = ROIs_data['ROIs'][str(int(label))]['Name']
-        # color = ROIs_data['ROIs'][str(int(label))]['Color']
-        # color = [x / 255 for x in color]
+        name = ROIs_data['ROIs'][str(label)]['Name']
         roi_patches.append(mpatches.Patch(color=color_list[i], label=name))
-        # color_list. append(color)
 
     roi_cmap = mcolors.ListedColormap(['none'] + color_list)
     roi_norm = mcolors.BoundaryNorm(boundaries=np.arange(0, len(unique_rois) + 2) - 0.5,
@@ -412,9 +407,14 @@ def plot_Dose_on_CT(CT_data, Dose_data, ROIs_data, alpha=0.5):
     for i, view in enumerate(views):
         ax = axes[i]
         ct_slice = get_ct[view](0)
-        dose_slice = np.ma.masked_where(get_dose[view](0) <= 0, get_dose[view](0))
+        dose_mask = get_dose[view](0) > 0
 
-        ct_img = ax.imshow(ct_slice, cmap='gray', origin=origins[view])
+        # Apply dose mask to CT
+        ct_masked = np.ma.masked_where(~dose_mask, ct_slice)
+
+        dose_slice = np.ma.masked_where(~dose_mask, get_dose[view](0))
+
+        ct_img = ax.imshow(ct_masked, cmap='gray', origin=origins[view])
         dose_img = ax.imshow(dose_slice, cmap='jet', alpha=alpha, origin=origins[view],
                              vmin=0, vmax=np.max(Dose_data['Volume']))
 
@@ -425,7 +425,7 @@ def plot_Dose_on_CT(CT_data, Dose_data, ROIs_data, alpha=0.5):
         roi_img = ax.imshow(roi_slice, cmap=roi_cmap, norm=roi_norm, alpha=0.6, origin=origins[view])
 
         ax.set_title(f"{view.capitalize()} Slice 0")
-        ax.axis('off')
+        # ax.axis('off')
 
         imgs_ct.append(ct_img)
         imgs_dose.append(dose_img)
@@ -441,7 +441,7 @@ def plot_Dose_on_CT(CT_data, Dose_data, ROIs_data, alpha=0.5):
     slider_axes = [
         plt.axes([0.25, 0.18, 0.5, 0.025]),  # Axial
         plt.axes([0.25, 0.12, 0.5, 0.025]),  # Coronal
-        plt.axes([0.25, 0.06, 0.5, 0.025])   # Sagittal
+        plt.axes([0.25, 0.06, 0.5, 0.025])  # Sagittal
     ]
 
     for i, view in enumerate(views):
@@ -451,10 +451,15 @@ def plot_Dose_on_CT(CT_data, Dose_data, ROIs_data, alpha=0.5):
             def update(val):
                 idx = int(val)
                 new_ct = get_ct[view](idx)
-                new_dose = np.ma.masked_where(get_dose[view](idx) <= 0, get_dose[view](idx))
+                dose_data = get_dose[view](idx)
+                dose_mask = dose_data > 0
 
-                imgs_ct[i].set_data(new_ct)
+                new_ct_masked = np.ma.masked_where(~dose_mask, new_ct)
+                new_dose = np.ma.masked_where(~dose_mask, dose_data)
+
+                imgs_ct[i].set_data(new_ct_masked)
                 imgs_dose[i].set_data(new_dose)
+
                 roi_data = get_roi[view](idx)
                 roi_data = dilate_labeled_rois(roi_data)
                 roi_data = np.ma.masked_where(roi_data == 0, roi_data)
