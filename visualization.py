@@ -2,6 +2,9 @@ import matplotlib
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.widgets import Slider
+import matplotlib.colors as mcolors
+import matplotlib.patches as mpatches
+from scipy.ndimage import binary_dilation
 
 matplotlib.use('TkAgg')
 
@@ -93,6 +96,8 @@ def plot_full_image(ROIs_data, CT_slice, Dose_map, alpha=0.5):
     plt.legend(loc="upper right", fontsize="9")
     plt.show()
 
+from pydicom.pixel_data_handlers.util import apply_color_lut, apply_modality_lut, apply_voi_lut
+
 
 def plot_CT_view(volume, view='axial'):
     """
@@ -122,7 +127,7 @@ def plot_CT_view(volume, view='axial'):
         raise ValueError("Invalid view. Choose from 'axial', 'sagittal', or 'coronal'.")
 
     index = 0
-    img = ax.imshow(get_slice(index), cmap='gray')
+    img = ax.imshow(get_slice(index), cmap='gray', vmin=900, vmax=1200)
     ax.set_title(f"{view.capitalize()} Slice {index}")
     ax.axis('off')
 
@@ -334,15 +339,6 @@ def plot_Dose_on_CT(ct_volume, dose_volume, alpha=0.5):
 
     plt.show()
 
-
-import numpy as np
-import matplotlib.pyplot as plt
-from matplotlib.widgets import Slider
-import matplotlib.colors as mcolors
-import matplotlib.patches as mpatches
-from scipy.ndimage import binary_dilation
-
-
 def dilate_labeled_rois(roi_slice, iterations=3):
     """Dilate each ROI label individually."""
     dilated = np.zeros_like(roi_slice)
@@ -354,9 +350,16 @@ def dilate_labeled_rois(roi_slice, iterations=3):
     return dilated
 
 
-def plot_Dose_on_CT(CT_data, Dose_data, ROIs_data, alpha=0.5):
+from skimage import exposure
+def black_to_jet_colormap():
+    jet = plt.cm.get_cmap('jet', 256)
+    newcolors = jet(np.linspace(0, 1, 256))
+    newcolors[0] = [0, 0, 0, 1]  # Replace the first color with black
+    return mcolors.ListedColormap(newcolors, name='black_jet')
+
+def plot_Dose_on_CT(CT_data, Dose_data, ROIs_data):
     fig, axes = plt.subplots(1, 3, figsize=(18, 6))
-    plt.subplots_adjust(bottom=0.3)
+    plt.subplots_adjust(bottom=0.38)
 
     views = ['axial', 'coronal', 'sagittal']
     get_ct = {
@@ -399,78 +402,122 @@ def plot_Dose_on_CT(CT_data, Dose_data, ROIs_data, alpha=0.5):
         'sagittal': 'lower'
     }
 
-    imgs_ct = []
-    imgs_dose = []
-    imgs_roi = []
-    sliders = []
+    imgs_ct, imgs_dose, imgs_roi, sliders = [], [], [], []
+    dose_min = 0
+    dose_max = np.max(Dose_data['Volume'])
+
+    cmap = plt.cm.gray.copy()
+    cmap.set_bad(color='black')
+
+    def update_dose_image(dose_data, view_index):
+        min_val = dose_min_slider.val
+        max_val = dose_max_slider.val
+
+        normed = dose_data / np.max(Dose_data['Volume'])
+        normed = np.clip(normed, 0, 1)
+        colored = plt.cm.jet(normed)
+        alpha = np.where((dose_data < min_val) | (dose_data > max_val), 0.0, dose_data)
+        colored[..., 3] = alpha
+
+        imgs_dose[view_index].set_data(colored)
 
     for i, view in enumerate(views):
         ax = axes[i]
-        ct_slice = get_ct[view](0)
-        dose_mask = get_dose[view](0) > 0
+        ct_data = get_ct[view](0)
+        dose_data = get_dose[view](0)
 
-        # Apply dose mask to CT
-        ct_masked = np.ma.masked_where(~dose_mask, ct_slice)
+        ct_img = ax.imshow(ct_data, cmap=cmap, vmin=900, vmax=1200, origin=origins[view])
 
-        dose_slice = np.ma.masked_where(~dose_mask, get_dose[view](0))
+        normed = dose_data / np.max(Dose_data['Volume'])
+        normed = np.clip(normed, 0, 1)
+        colored = plt.cm.jet(normed)
+        alpha = np.where((dose_data < dose_min) | (dose_data > dose_max), 0.0, dose_data)
+        colored[..., 3] = alpha
 
-        ct_img = ax.imshow(ct_masked, cmap='gray', origin=origins[view])
-        dose_img = ax.imshow(dose_slice, cmap='jet', alpha=alpha, origin=origins[view],
-                             vmin=0, vmax=np.max(Dose_data['Volume']))
+        dose_img = ax.imshow(colored, origin=origins[view], alpha=0.4)
 
-        # ROI overlay
-        roi_slice = get_roi[view](0)
-        roi_slice = dilate_labeled_rois(roi_slice)
-        roi_slice = np.ma.masked_where(roi_slice == 0, roi_slice)
-        roi_img = ax.imshow(roi_slice, cmap=roi_cmap, norm=roi_norm, alpha=0.6, origin=origins[view])
+        roi_data = get_roi[view](0)
+        roi_data = dilate_labeled_rois(roi_data)
+        roi_data = np.where(roi_data, roi_data, 0)
+        roi_img = ax.imshow(roi_data, cmap=roi_cmap, norm=roi_norm, alpha=0.6, origin=origins[view])
 
         ax.set_title(f"{view.capitalize()} Slice 0")
-        # ax.axis('off')
+        ax.axis('off')
 
         imgs_ct.append(ct_img)
         imgs_dose.append(dose_img)
         imgs_roi.append(roi_img)
 
-    # Shared colorbar for dose
-    cbar = fig.colorbar(imgs_dose[0], ax=axes.ravel().tolist(), fraction=0.015, pad=0.02)
-    cbar.set_label("Dose [Gy]")
+    sm = plt.cm.ScalarMappable(cmap='jet')
+    sm.set_clim(0, np.max(Dose_data['Volume']))
+    sm.set_array([])
+    cbar = fig.colorbar(sm, ax=axes.ravel().tolist(), fraction=0.015, pad=0.02)
+    cbar.set_label("Dose (Gy)")
 
     fig.legend(handles=roi_patches, loc='upper center', ncol=5, bbox_to_anchor=(0.5, 1.05))
 
-    # 3 vertically stacked sliders
     slider_axes = [
-        plt.axes([0.25, 0.18, 0.5, 0.025]),  # Axial
-        plt.axes([0.25, 0.12, 0.5, 0.025]),  # Coronal
-        plt.axes([0.25, 0.06, 0.5, 0.025])  # Sagittal
+        plt.axes([0.25, 0.25, 0.5, 0.02]),
+        plt.axes([0.25, 0.20, 0.5, 0.02]),
+        plt.axes([0.25, 0.15, 0.5, 0.02])
     ]
 
+    dose_min_ax = plt.axes([0.25, 0.08, 0.5, 0.02])
+    dose_max_ax = plt.axes([0.25, 0.03, 0.5, 0.02])
+
+    dose_min_slider = Slider(dose_min_ax, 'Min Dose', 0.0, dose_max, valinit=dose_min, valstep=0.001)
+    dose_max_slider = Slider(dose_max_ax, 'Max Dose', 0.0, dose_max, valinit=dose_max, valstep=0.001)
+
+    def refresh_all():
+        for i, view in enumerate(views):
+            idx = int(sliders[i].val)
+            ct_data = get_ct[view](idx)
+            dose_data = get_dose[view](idx)
+
+            ct_data = np.ma.masked_where(dose_data <= 0, ct_data)
+
+            # if view == 'axial':
+            #     # Get bounding box of non-zero dose or unmasked CT
+            #     mask = ~ct_data.mask
+            #     rows = np.any(mask, axis=1)
+            #     cols = np.any(mask, axis=0)
+            #
+            #     ymin, ymax = np.where(rows)[0][[0, -1]]
+            #     xmin, xmax = np.where(cols)[0][[0, -1]]
+            #
+            #     # Add padding (optional, e.g., 5 pixels)
+            #     pad = 50
+            #     ymin, ymax = max(0, ymin - pad), min(mask.shape[0] - 1, ymax + pad)
+            #     xmin, xmax = max(0, xmin - pad), min(mask.shape[1] - 1, xmax + pad)
+            #
+            #     # Set axes limits
+            #     axes[0].set_ylim(ymax, ymin)  # Y axis is inverted
+            #     axes[0].set_xlim(xmin, xmax)
+
+            imgs_ct[i].set_data(ct_data)
+
+            update_dose_image(dose_data, i)
+
+            roi_data = get_roi[view](idx)
+            roi_data = dilate_labeled_rois(roi_data)
+            roi_data = np.where(roi_data, roi_data, 0)
+            imgs_roi[i].set_data(roi_data)
+
+            axes[i].set_title(f"{view.capitalize()} Slice {idx}")
+        fig.canvas.draw_idle()
+
+    dose_min_slider.on_changed(lambda val: refresh_all())
+    dose_max_slider.on_changed(lambda val: refresh_all())
+
     for i, view in enumerate(views):
-        slider = Slider(slider_axes[i], f'{view.capitalize()} Slice', 0, shapes[view] - 1, valinit=0, valstep=1)
+        view_slider = Slider(slider_axes[i], f'{view.capitalize()} Slice', 0, shapes[view] - 1, valinit=0, valstep=1)
 
         def make_update_func(view=view, i=i):
             def update(val):
-                idx = int(val)
-                new_ct = get_ct[view](idx)
-                dose_data = get_dose[view](idx)
-                dose_mask = dose_data > 0
-
-                new_ct_masked = np.ma.masked_where(~dose_mask, new_ct)
-                new_dose = np.ma.masked_where(~dose_mask, dose_data)
-
-                imgs_ct[i].set_data(new_ct_masked)
-                imgs_dose[i].set_data(new_dose)
-
-                roi_data = get_roi[view](idx)
-                roi_data = dilate_labeled_rois(roi_data)
-                roi_data = np.ma.masked_where(roi_data == 0, roi_data)
-                imgs_roi[i].set_data(roi_data)
-
-                axes[i].set_title(f"{view.capitalize()} Slice {idx}")
-                fig.canvas.draw_idle()
-
+                refresh_all()
             return update
 
-        slider.on_changed(make_update_func())
-        sliders.append(slider)
+        view_slider.on_changed(make_update_func())
+        sliders.append(view_slider)
 
     plt.show()

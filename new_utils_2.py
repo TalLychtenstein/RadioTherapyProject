@@ -169,7 +169,6 @@ def extract_ROIs_data(RS_data):
             y_points = contour_points[1::3]
             z_points = contour_points[2::3]
             ROIs_contours_data['ROIs'][ROI_Number]["CT Contours"][CT_slice] = list(zip(x_points, y_points, z_points))
-
     return ROIs_contours_data
 
 
@@ -478,6 +477,10 @@ def compute_volume_cc(roi_mask, spacing):
     voxel_volume_cc = voxel_volume_mm3 / 1000
     return np.sum(roi_mask > 0) * voxel_volume_cc
 
+def compute_volume(roi_mask, spacing):
+    voxel_volume_mm3 = np.prod(spacing)
+    return np.sum(roi_mask > 0) * voxel_volume_mm3
+
 
 def compute_dvh(dose_volume, roi_mask, bin_width=1.0, max_dose=None):
     masked_dose = dose_volume[roi_mask > 0]
@@ -526,7 +529,7 @@ def extract_group2_metrics(Dose_data, ROIs_data, target_labels=None, prescribed_
         if not np.any(roi_mask):
             continue
 
-        volume_cc = compute_volume_cc(roi_mask, spacing)
+        volume = compute_volume(roi_mask, spacing)
         percentiles = compute_dose_percentiles(dose_volume, roi_mask)
         hi = compute_homogeneity_index(percentiles["D2% [Gy]"], percentiles["D98% [Gy]"])
         ci = compute_conformity_index(dose_volume, roi_mask, prescribed_dose) if prescribed_dose else None
@@ -534,7 +537,7 @@ def extract_group2_metrics(Dose_data, ROIs_data, target_labels=None, prescribed_
 
         results[name] = {
             "ROI Number": roi_number,
-            "Volume [cc]": volume_cc,
+            "Volume [mm3]": volume,
             **percentiles,
             "Homogeneity Index": hi,
             "Conformity Index": ci,

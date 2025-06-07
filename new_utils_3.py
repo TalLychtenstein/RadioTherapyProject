@@ -539,7 +539,7 @@ def extract_group2_metrics(Dose_data, ROIs_data, target_labels=None, prescribed_
         percentiles = compute_dose_percentiles(dose_volume, roi_mask)
         hi = compute_homogeneity_index(percentiles["D2% [Gy]"], percentiles["D98% [Gy]"])
         ci = compute_conformity_index(dose_volume, roi_mask, prescribed_dose) if prescribed_dose else None
-        dvh = compute_dvh(dose_volume, roi_mask)
+        dvh = compute_dvh(dose_volume, roi_mask, bin_width=1.0, max_dose=40)
 
         results[name] = {
             "ROI Number": roi_number,
@@ -621,7 +621,12 @@ def save_group2_to_excel(group2_dict, output_path):
     df = pd.DataFrame(rows)
     df.to_excel(output_path, index=False, sheet_name="Group 2")
 
-
+def save_group3_to_excel(group_dict, output_path):
+    """
+    Save Group 3 metrics to Excel.
+    """
+    df = pd.DataFrame.from_dict(group_dict, orient='index', columns=["Value"])
+    df.to_excel(output_path, sheet_name="Group 3")
 
 import matplotlib.pyplot as plt
 import statistics
@@ -709,11 +714,10 @@ def extract_group3_metrics(Dose_data, ROIs_data, healthy_brain_label_name, dose_
         raise ValueError(f"Healthy Brain ROI '{healthy_brain_label_name}' not found in ROIs.")
 
     brain_mask = (label_map == roi_number)
-    voxel_volume_cc = np.prod(spacing) / 1000
 
     results = {}
     for threshold in dose_thresholds:
         mask = (dose >= threshold) & brain_mask
-        results[f"V{threshold} [cc]"] = np.sum(mask) * voxel_volume_cc
+        results[f"V{threshold} [mm3]"] = compute_volume_mm3(mask, spacing)
 
     return results
