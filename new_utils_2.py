@@ -372,11 +372,10 @@ def create_ROIs_volume(ROIs_data, CT_data):
             ROI_contour = ROIs_data['ROIs'][ROI_number]['CT Contours'][CT_slice_number]
             preprocessed_x = [int((x - x_position) / x_spacing) for (x, y, z) in ROI_contour]
             preprocessed_y = [int((y - y_position) / y_spacing) for (x, y, z) in ROI_contour]
-            preprocessed_z = [int(z_index) for (x, y, z) in ROI_contour]
 
             # Fill ROI volume
-            for (z, y, x) in list(zip(preprocessed_z, preprocessed_y, preprocessed_x)):
-                ROIs_volume[z, y, x] = ROI_number
+            for (y, x) in list(zip(preprocessed_y, preprocessed_x)):
+                ROIs_volume[z_index, y, x] = ROI_number
     return ROIs_volume
 
 import nibabel as nib
