@@ -3,7 +3,9 @@ import pydicom
 import numpy as np
 import scipy.ndimage
 import cv2
-
+import nibabel as nib
+import SimpleITK as sitk
+from skimage.draw import polygon
 
 def find_file_with_prefix(folder_path, prefix):
     """Finds a file in the given folder with the specified prefix."""
@@ -139,9 +141,14 @@ def extract_ROIs_data(RS_data):
     # Initialize storage dictionary
     ROIs_contours_data = {}
     ROIs_contours_data['ROIs'] = {}
+
+    Outer_ROI_number = 0
+
     # Process ROIs
     for ROI in ROIs_data:
         ROI_Number = str(ROI.ROINumber)
+        if ROI.ROIName == 'Outer Contour':
+            Outer_ROI_number = ROI_Number
         ROIs_contours_data['ROIs'][ROI_Number] = {
             "Name": ROI.ROIName,  # ROI's name
             "Color": None,  # Placeholder for ROI's color
@@ -152,6 +159,9 @@ def extract_ROIs_data(RS_data):
     for contour in contours_data:
         # Find corresponding ROI number
         ROI_Number = str(contour.ReferencedROINumber)
+
+        # if ROI_Number == Outer_ROI_number:
+        #     continue
 
         # Define the ROI color to be the color of its contour (if not already set)
         if "Color" in ROIs_contours_data['ROIs'][ROI_Number] and ROIs_contours_data['ROIs'][ROI_Number][
@@ -225,6 +235,140 @@ def load_CT_data(files_path):
     # Create volume
     CT_data['Volume'] = create_CT_volume(CT_data)
     return CT_data
+
+
+def rasterize_rtstruct_to_separate_images(rtstruct_path, reference_image):
+    """
+    Rasterizes RTSTRUCT contours into separate binary masks per ROI.
+
+    Returns:
+        dict: {roi_name: SimpleITK Image (binary mask)}
+        list: metadata (list of dicts)
+    """
+    # Load RTSTRUCT
+    ds = pydicom.dcmread(rtstruct_path)
+
+    # Build ROI number -> name mapping
+    roi_number_to_name = {
+        roi.ROINumber: roi.ROIName for roi in ds.StructureSetROISequence
+    }
+
+    spacing = reference_image.GetSpacing()
+    origin = reference_image.GetOrigin()
+    direction = reference_image.GetDirection()
+    size = reference_image.GetSize()
+
+    # Initialize empty arrays per ROI
+    mask_images = {}
+
+    metadata = []
+
+    # For each ROIContourSequence
+    for idx, roi_contour in enumerate(ds.ROIContourSequence, start=1):
+        roi_number = roi_contour.ReferencedROINumber
+        roi_name = roi_number_to_name[roi_number]
+        mask_array = np.zeros((size[2], size[1], size[0]), dtype=np.uint8)
+
+        for contour_item in roi_contour.ContourSequence:
+            data = contour_item.ContourData
+            coords = np.array(data).reshape((-1, 3))
+
+            indices = [
+                reference_image.TransformPhysicalPointToIndex(tuple(pt))
+                for pt in coords
+            ]
+
+            xs = [i[0] for i in indices]
+            ys = [i[1] for i in indices]
+            zs = [i[2] for i in indices]
+
+            unique_z = set(zs)
+            for zz in unique_z:
+                slice_pts = [(x, y) for x, y, z in zip(xs, ys, zs) if z == zz]
+                if len(slice_pts) < 3:
+                    continue
+                rr, cc = polygon(
+                    [p[1] for p in slice_pts],
+                    [p[0] for p in slice_pts],
+                    shape=mask_array.shape[1:]
+                )
+                mask_array[zz, rr, cc] = 1
+
+        # Convert to SimpleITK Image
+        mask_img = sitk.GetImageFromArray(mask_array)
+        mask_img.SetSpacing(spacing)
+        mask_img.SetOrigin(origin)
+        mask_img.SetDirection(direction)
+
+        mask_images[roi_name] = mask_img
+
+        metadata.append({
+            "index": idx,
+            "name": roi_name,
+            "color": (
+                list(map(int, roi_contour.ROIDisplayColor))
+                if hasattr(roi_contour, "ROIDisplayColor")
+                else [255, 255, 255]
+            )
+        })
+
+    return mask_images, metadata
+
+
+def create_ROIs_volume_2(RT_files_path, CT_data):
+    """
+    Creates a ROIs volume (label map) using rasterization of RTSTRUCT contours
+    with reference to the given CT volume.
+
+    Parameters:
+    - RT_files_path (str): Path to the DICOM folder containing RS file.
+    - CT_data (dict): Dictionary containing CT volume, spacing, and position.
+
+    Returns:
+    - ROIs_data (dict): Dictionary with 'Volume' (3D label map) and 'ROIs' metadata.
+    """
+    # Create reference SimpleITK image from CT
+    ct_sitk_image = sitk.GetImageFromArray(CT_data["Volume"])
+    ct_sitk_image.SetSpacing(CT_data["Spacing"])
+    ct_sitk_image.SetOrigin(CT_data["Position"])
+    ct_sitk_image.SetDirection([1.0, 0.0, 0.0,
+                                0.0, 1.0, 0.0,
+                                0.0, 0.0, 1.0])
+
+    # Get RS file path
+    rtstruct_path = find_file_with_prefix(RT_files_path, 'RS')
+
+    # Rasterize RTSTRUCT into binary masks
+    roi_masks_dict, roi_metadata = rasterize_rtstruct_to_separate_images(
+        rtstruct_path=rtstruct_path,
+        reference_image=ct_sitk_image
+    )
+
+    # Initialize label volume and metadata
+    volume_shape = CT_data["Volume"].shape
+    label_volume = np.zeros(volume_shape, dtype=np.uint16)
+    rois_dict = {}
+
+    for idx, metadata in enumerate(roi_metadata, start=1):
+        name = metadata["name"]
+        color = metadata["color"]
+        mask_image = roi_masks_dict[name]
+        mask_array = sitk.GetArrayFromImage(mask_image)
+
+        label_volume[mask_array > 0] = idx
+        rois_dict[str(idx)] = {
+            "Name": name,
+            "Color": color,
+            "CT Contours": {}  # Empty, kept for compatibility
+        }
+
+    ROIs_data = {
+        "Volume": label_volume,
+        "ROIs": rois_dict
+    }
+
+    return ROIs_data
+
 
 
 def resample_array(array, zoom_factors, order=1):
@@ -355,30 +499,101 @@ def get_CT_slice_by_z_index(CT_data, z_index):
     return CT_data['Volume'][z_index]
 
 
-def create_ROIs_volume(ROIs_data, CT_data):
-    ROIs_volume = np.zeros_like(CT_data['Volume'])
+# def create_ROIs_volume(ROIs_data, CT_data):
+#     ROIs_volume = np.zeros_like(CT_data['Volume'])
+#
+#     # Extract metadata for proper contour alignment
+#     z_position, y_position, x_position = CT_data["Position"]
+#     z_spacing, y_spacing, x_spacing = CT_data["Spacing"]\
+#
+#     for ROI_number in ROIs_data['ROIs']:
+#         for CT_slice_number in ROIs_data['ROIs'][ROI_number]['CT Contours']:
+#
+#             # Obtain the Z index of this CT slice in the CT volume
+#             z_index = CT_data['Slices'][CT_slice_number]['Z Index']
+#
+#             # Preprocess the ROI contour
+#             ROI_contour = ROIs_data['ROIs'][ROI_number]['CT Contours'][CT_slice_number]
+#             preprocessed_x = [int((x - x_position) / x_spacing) for (x, y, z) in ROI_contour]
+#             preprocessed_y = [int((y - y_position) / y_spacing) for (x, y, z) in ROI_contour]
+#
+#             # Fill ROI volume
+#             for (y, x) in list(zip(preprocessed_y, preprocessed_x)):
+#                 ROIs_volume[z_index, y, x] = ROI_number
+#     return ROIs_volume
 
-    # Extract metadata for proper contour alignment
+# import numpy as np
+# from skimage.draw import polygon  # For filling ROI contours
+#
+# def create_ROIs_volume(ROIs_data, CT_data):
+#     ROIs_volume = np.zeros_like(CT_data['Volume'], dtype=np.uint16)
+#
+#     # Extract metadata for proper contour alignment
+#     z_position, y_position, x_position = CT_data["Position"]
+#     z_spacing, y_spacing, x_spacing = CT_data["Spacing"]
+#
+#
+#     for ROI_number in ROIs_data['ROIs']:
+#         for CT_slice_number in ROIs_data['ROIs'][ROI_number]['CT Contours']:
+#
+#             # Obtain the Z index of this CT slice in the CT volume
+#             z_index = CT_data['Slices'][CT_slice_number]['Z Index']
+#
+#             # Preprocess the ROI contour points
+#             ROI_contour = ROIs_data['ROIs'][ROI_number]['CT Contours'][CT_slice_number]
+#             x_coords = [(x - x_position) / x_spacing for (x, y, z) in ROI_contour]
+#             y_coords = [(y - y_position) / y_spacing for (x, y, z) in ROI_contour]
+#
+#             # Convert to integer pixel indices
+#             rr, cc = polygon(y_coords, x_coords, shape=ROIs_volume[z_index].shape)
+#
+#             ROIs_volume[z_index, rr, cc] = ROI_number
+#
+#     return ROIs_volume
+
+from skimage.draw import polygon
+import numpy as np
+
+
+def polygon_area(x, y):
+    return 0.5 * np.abs(np.dot(x, np.roll(y, 1)) - np.dot(y, np.roll(x, 1)))
+
+
+def create_ROIs_volume(ROIs_data, CT_data):
+    ROIs_volume = np.zeros_like(CT_data['Volume'], dtype=np.uint16)
+
     z_position, y_position, x_position = CT_data["Position"]
     z_spacing, y_spacing, x_spacing = CT_data["Spacing"]
 
+    # Group all contours by slice
+    contours_by_slice = {}
+
     for ROI_number in ROIs_data['ROIs']:
-        for CT_slice_number in ROIs_data['ROIs'][ROI_number]['CT Contours']:
-
-            # Obtain the Z index of this CT slice in the CT volume
+        for CT_slice_number, contour in ROIs_data['ROIs'][ROI_number]['CT Contours'].items():
             z_index = CT_data['Slices'][CT_slice_number]['Z Index']
+            x_coords = [(x - x_position) / x_spacing for (x, y, z) in contour]
+            y_coords = [(y - y_position) / y_spacing for (x, y, z) in contour]
 
-            # Preprocess the ROI contour
-            ROI_contour = ROIs_data['ROIs'][ROI_number]['CT Contours'][CT_slice_number]
-            preprocessed_x = [int((x - x_position) / x_spacing) for (x, y, z) in ROI_contour]
-            preprocessed_y = [int((y - y_position) / y_spacing) for (x, y, z) in ROI_contour]
+            area = polygon_area(x_coords, y_coords)
 
-            # Fill ROI volume
-            for (y, x) in list(zip(preprocessed_y, preprocessed_x)):
-                ROIs_volume[z_index, y, x] = ROI_number
+            if z_index not in contours_by_slice:
+                contours_by_slice[z_index] = []
+            contours_by_slice[z_index].append((area, ROI_number, x_coords, y_coords))
+
+    # Now insert per slice sorted by area
+    for z_index in contours_by_slice:
+        # Sort by increasing area
+        for area, ROI_number, x_coords, y_coords in sorted(contours_by_slice[z_index], key=lambda x: x[0], reverse=True):
+            rr, cc = polygon(y_coords, x_coords, shape=ROIs_volume[z_index].shape)
+
+            insert_mask = np.zeros_like(ROIs_volume[z_index], dtype=bool)
+            insert_mask[rr, cc] = True
+
+            # insert_mask = np.logical_and(temp_mask, ROIs_volume[z_index] == 0)
+            ROIs_volume[z_index][insert_mask] = ROI_number
+
     return ROIs_volume
 
-import nibabel as nib
 
 def save_volume_as_nifti(volume, spacing, output_path, affine_origin=(0, 0, 0)):
     """

@@ -1,6 +1,7 @@
-import numpy as np
-import pydicom
 import os
+import pydicom
+import numpy as np
+import cv2
 
 
 def find_file_with_prefix(folder_path, prefix):
@@ -28,6 +29,7 @@ def read_dicom_rs_file(file_path):
     else:
         raise ValueError("The provided file is not an RT Structure Set (RTSTRUCT) DICOM file.")
 
+
 def read_dicom_rp_file(file_path):
     """Reads and loads a DICOM Radiation Therapy Plan (RP) file."""
     rp = pydicom.dcmread(file_path)
@@ -37,85 +39,315 @@ def read_dicom_rp_file(file_path):
         raise ValueError("The provided file is not an RP (RTPLAN) DICOM file.")
 
 
-def get_contour_data(rtstruct):
-    """Extracts contour data and colors from the RT Structure Set."""
-    contour_data = {}
-    contour_color = {}
-    structure_set_ROI_sequence = rtstruct.StructureSetROISequence
-    roi_contour = rtstruct.ROIContourSequence
+def load_RT_data(files_path):
+    """
+    Load DICOM Radiation Therapy (RT) data from a given directory.
 
-    for i in range(len(structure_set_ROI_sequence)):
-        roi_name = structure_set_ROI_sequence[i].ROIName
-        contour_data[roi_name] = []
-        contour_color[roi_name] = roi_contour[i].ROIDisplayColor
-        roi_contour1 = roi_contour[i]
-        for contour_sequence in roi_contour1.ContourSequence:
-            contour_points = contour_sequence.ContourData
-            if isinstance(contour_points, pydicom.multival.MultiValue):
-                points = np.array(contour_points).reshape(-1, 3)  # Reshape into Nx3 array (x, y, z)
-            else:
-                points = np.array(list(map(float, contour_points.split()))).reshape(-1, 3)
-            contour_data[roi_name].append(points)
-    return contour_data, contour_color
+    This function loads three types of DICOM RT files:
+    - RD (Radiation Dose) file: Contains radiation dose distribution data.
+    - RS (Radiation Structure) file: Contains structure set data, defining target volumes and organs-at-risk.
+    - RP (Radiation Plan) file: Contains treatment plan information.
+
+    Parameters:
+    ----------
+    files_path : str
+        The path to the directory containing the DICOM RT files.
+
+    Returns:
+    -------
+    tuple
+        A tuple containing three elements:
+        - RD_data: Radiation dose data extracted from the RD file.
+        - RS_data: Radiation structure data extracted from the RS file.
+        - RP_data: Radiation plan data extracted from the RP file.
+
+    Raises:
+    ------
+    FileNotFoundError:
+        If any of the required files (RD, RS, RP) are not found in the directory.
+    """
+
+    # Load RD data
+    RD_file_name = find_file_with_prefix(files_path, 'RD')
+    if RD_file_name is None:
+        raise FileNotFoundError("RD (Radiation Dose) file not found in the directory.")
+    RD_data = read_dicom_rd_file(RD_file_name)  # load radiation dose information
+
+    # Load RS data
+    RS_file_name = find_file_with_prefix(files_path, 'RS')
+    if RS_file_name is None:
+        raise FileNotFoundError("RS (Radiation Structure) file not found in the directory.")
+    RS_data = read_dicom_rs_file(RS_file_name)  # load radiation structure information
+
+    # Load RP data
+    RP_file_name = find_file_with_prefix(files_path, 'RP')
+    if RP_file_name is None:
+        raise FileNotFoundError("RP (Radiation Plan) file not found in the directory.")
+    RP_data = read_dicom_rp_file(RP_file_name)  # load radiation plan information
+
+    return RD_data, RS_data, RP_data
 
 
-def load_contour_slices(rs_dataset):
-    """Loads contour slices from CT images in the given RS dataset."""
-    contour_slices = {}
+def extract_dose_data(RD_data):
+    """
+    Extracts relevant dose-related information from the RD (Radiotherapy Dose) dataset.
 
-    # For each ROI, extract corresponding sequence of contours
-    roi_contour_sequence = rs_dataset.ROIContourSequence
-    structure_set_ROI_sequence = rs_dataset.StructureSetROISequence
+    Parameters:
+    RD_data: pydicom Dataset
+        The DICOM dataset containing radiotherapy dose information.
 
-    for i in range(len(structure_set_ROI_sequence)):
-        roi_contour = roi_contour_sequence[i].ContourSequence
-        roi_name = structure_set_ROI_sequence[i].ROIName
-        slice_data = []
-        contour_slices[roi_name] = []
+    Returns:
+    dict
+        A dictionary containing:
+        - "Scaling Factor": The dose grid scaling factor.
+        - "Position": The (x, y, z) position of the dose grid in patient coordinates.
+        - "Spacing": The spacing between pixels in the dose grid.
+        - "Image": The actual pixel array representing the dose distribution.
+    """
+    Dose_data = {"Scaling Factor": RD_data.DoseGridScaling,
+                 "Position": RD_data.ImagePositionPatient,
+                 "Spacing": RD_data.PixelSpacing,
+                 "Image": RD_data.pixel_array,
+                 "Scaled Image": RD_data.pixel_array * RD_data.DoseGridScaling}
+    return Dose_data
 
-        for i in range(len(roi_contour)):
-            slice_number = roi_contour[i].ContourImageSequence[0].ReferencedSOPInstanceUID
-            contour_points = roi_contour[i].ContourData
-            slice_data.append((slice_number, contour_points))
 
-        contour_slices[roi_name] = slice_data
-    return contour_slices
+def find_slice_index(CT_data, CT_slice):
+    """
+    Finds the index of a specific CT slice within a collection of CT slices based on z-position.
+
+    Parameters:
+    CT_data: dict
+        A dictionary where keys are slice identifiers, and values contain slice metadata,
+        including the "Position" key which holds (x, y, z) coordinates.
+    CT_slice: str
+        The key corresponding to the specific CT slice whose index is to be determined.
+
+    Returns:
+    int
+        The index of the specified CT slice in the ordered list of slice z-positions.
+    """
+    # Extract z positions from all CT slices and sort them.
+    z_positions = {slice_name: CT_data[slice_name]["Position"][2] for slice_name in CT_data.keys()}
+    ordered_z_positions = sorted(z_positions.values())
+
+    # Find slice's index by relative index of its z position
+    slice_z_position = z_positions[CT_slice]
+    index = ordered_z_positions.index(slice_z_position)
+
+    return index
 
 
-def load_ct_slices(ct_folder_path):
-    """Loads CT slices and extracts pixel spacing from CT images in the given RS dataset."""
-    ct_slices = {}
-    for file_name in os.listdir(ct_folder_path):
+def extract_ROIs_contours_data(RS_data):
+    """
+    Extracts ROIs and their associated contour data from an RT Structure Set (RS) DICOM file.
+
+    Args:
+        RS_data (pydicom Dataset): RT Structure Set (RS) DICOM dataset.
+
+    Returns:
+        ROIs_contours_data (dict): Dictionary containing ROI numbers as keys with their name, color, and contour data.
+    """
+
+    # Extract sequences
+    ROIs_data = RS_data.StructureSetROISequence
+    contours_data = RS_data.ROIContourSequence
+
+    # Initialize storage dictionary
+    ROIs_contours_data = {}
+
+    # Process ROIs
+    for ROI in ROIs_data:
+        ROI_Number = str(ROI.ROINumber)
+        ROIs_contours_data[ROI_Number] = {
+            "Name": ROI.ROIName,  # ROI's name
+            "Color": None,  # Placeholder for ROI's color
+            "CT Contours": {},  # Placeholder for ROI's CT contours
+        }
+
+    # Process Contours
+    for contour in contours_data:
+        # Find corresponding ROI number
+        ROI_Number = str(contour.ReferencedROINumber)
+
+        # Define the ROI color to be the color of its contour (if not already set)
+        if "Color" in ROIs_contours_data[ROI_Number] and ROIs_contours_data[ROI_Number]["Color"] is None:
+            ROIs_contours_data[ROI_Number]["Color"] = getattr(contour, "ROIDisplayColor", None)
+
+        # Extract Contour Data (dict of CT slice number and corresponding list of (x, y, z) contour points)
+        for contour_seq in contour.ContourSequence:
+            # Find corresponding CT number
+            CT_slice = str(contour_seq.ContourImageSequence[0].ReferencedSOPInstanceUID)
+
+            # Extract Contour Data
+            contour_points = contour_seq.ContourData  # Flat list of points
+            x_points = contour_points[0::3]
+            y_points = contour_points[1::3]
+            z_points = contour_points[2::3]
+            ROIs_contours_data[ROI_Number]["CT Contours"][CT_slice] = list(zip(x_points, y_points, z_points))
+
+    return ROIs_contours_data
+
+
+def load_CT_data(files_path):
+    """
+    Loads CT image data from DICOM files in a specified directory.
+
+    Parameters:
+    files_path: str
+        The directory path containing CT DICOM files.
+
+    Returns:
+    dict
+        A dictionary where each key is a CT slice identifier (SOPInstanceUID), and values are dictionaries containing:
+        - "Position": The (x, y, z) position of the slice.
+        - "Spacing": The pixel spacing values.
+        - "Image": The pixel array representing the CT image.
+    """
+    CT_data = {}
+    for file_name in os.listdir(files_path):
         if file_name.startswith('CT'):
-            ct_slice = pydicom.dcmread(os.path.join(ct_folder_path, file_name))
-            slice_number = ct_slice.SOPInstanceUID
-            slice_position = ct_slice.ImagePositionPatient
-            pixel_spacing = ct_slice.PixelSpacing
-
-            ct_slices[slice_number] = (ct_slice.pixel_array, slice_position)
-            x_spacing = pixel_spacing[0]
-            y_spacing = pixel_spacing[1]
-
-    return (ct_slices, x_spacing, y_spacing)
-
-
-def sort_ct(ct_slices):
-    """Sorts CT slices based on slice position (the most bottom image is first)."""
-    slices_position = [ct_slices[i][1] for i in sorted(ct_slices.keys())]
-    slices_order = [position[2] for position in slices_position]
-    return sorted(slices_order)
+            CT_slice_data = pydicom.dcmread(os.path.join(files_path, file_name))
+            slice_number = CT_slice_data.SOPInstanceUID
+            slice_position = CT_slice_data.ImagePositionPatient
+            pixel_spacing = CT_slice_data.PixelSpacing
+            pixel_array = CT_slice_data.pixel_array
+            CT_data[slice_number] = {"Position": slice_position,
+                                     "Spacing": pixel_spacing,
+                                     "Image": pixel_array}
+    return CT_data
 
 
-def match_contour_to_ct(contours_across_slices, ct_slices):
-    """Matches contour slices to corresponding CT slices."""
-    matched_slices = {}
-    # looping over specific rois and their contour through all contours across all slices.
-    for roi_name, contour_across_slices in contours_across_slices.items():
-        matched_slices[roi_name] = []
-        # looping over a specific slice and contour locations through all slices.
-        for slice_number, contour in contour_across_slices:
-            if slice_number in ct_slices:
-                matched_slices[roi_name].append(
-                    (slice_number, contour, ct_slices[slice_number][0], ct_slices[slice_number][1]))
+def extract_ROI_data(ROIs_contours_data, CT_slice):
+    """
+    Extracts and processes ROI (Region of Interest) contour data for a given CT slice.
 
-    return matched_slices
+    Parameters:
+    ROIs_contours_data (dict): A dictionary where each key represents an ROI and
+                               contains associated contour data and metadata.
+    CT_slice (int): The index of the CT slice for which to extract the ROI contours.
+
+    Returns:
+    list: A list of tuples, each containing:
+        - name (str): The name of the ROI.
+        - color (tuple): The color of the ROI in normalized RGB format.
+        - contour (list): A list of (x, y) coordinate pairs defining the contour.
+    """
+    ROIs_data = []
+    for roi_data in ROIs_contours_data.values():
+        contours = roi_data.get("CT Contours", {})
+        if CT_slice in contours:
+            name = roi_data.get("Name", "Unknown")
+            color = np.array(roi_data.get("Color", [255, 255, 255])) / 255.0  # Default to white if no color provided
+            contour = [(x, y) for (x, y, z) in contours[CT_slice]]  # Extract 2D contour coordinates
+            ROIs_data.append((name, color, contour))
+    return ROIs_data
+
+
+def preprocess_ROIs_to_CT(ROIs_data, CT_data):
+    """
+    Aligns ROI contour points to match the coordinate system of the CT image.
+
+    Parameters:
+    ROIs_data: list
+        A list of tuples where each tuple represents an ROI with format (ID, Label, Contour).
+    CT_data: dict
+        A dictionary containing CT metadata including position and spacing.
+
+    Returns:
+    list
+        A list of transformed ROI contours aligned with the CT image grid.
+    """
+    # Extract metadata for proper contour alignment
+    x_position, y_position, _ = CT_data["Position"]
+    x_spacing, y_spacing = CT_data["Spacing"]
+
+    preprocessed_ROIs_data = []
+    for ROI in ROIs_data:
+        contour = ROI[2]
+        preprocessed_x = [(x - x_position) / x_spacing for (x, y) in contour]
+        preprocessed_y = [(y - y_position) / y_spacing for (x, y) in contour]
+        preprocessed_contour = list(zip(preprocessed_x, preprocessed_y))
+        preprocessed_ROIs_data.append((ROI[0], ROI[1], preprocessed_contour))
+
+    return preprocessed_ROIs_data
+
+
+def match_Dose_to_CT(Dose_images, CT_slice_data, scale_x, scale_y, offset_x, offset_y):
+    """
+    Aligns Dose images to the CT slice dimensions.
+
+    Parameters:
+    Dose_images: numpy.ndarray
+        A 3D array of dose images (multiple slices).
+    CT_slice_data: dict
+        A dictionary containing the CT slice image and metadata.
+    scale_x: float
+        Scaling factor along the x-axis.
+    scale_y: float
+        Scaling factor along the y-axis.
+    offset_x: int
+        Offset in pixels along the x-axis.
+    offset_y: int
+        Offset in pixels along the y-axis.
+
+    Returns:
+    numpy.ndarray
+        A transformed 3D array of dose images aligned with the CT slice.
+    """
+    num_slices = Dose_images.shape[0]
+
+    # Compute the combined transformation matrix (scaling + translation)
+    transformation_matrix = np.float32([
+        [scale_x, 0, offset_x],  # Scale X and shift X
+        [0, scale_y, offset_y]  # Scale Y and shift Y
+    ])
+
+    # Determine new image shape
+    new_shape = (CT_slice_data["Image"].shape[1], CT_slice_data["Image"].shape[0])  # (width, height)
+
+    # Apply transformation to all slices
+    transformed_images = np.zeros((num_slices, new_shape[1], new_shape[0]), dtype=np.float32)
+
+    for i in range(num_slices):
+        transformed_images[i] = cv2.warpAffine(Dose_images[i].astype(np.float32),
+                                               transformation_matrix,
+                                               new_shape,
+                                               flags=cv2.INTER_LINEAR)
+
+    return transformed_images
+
+
+def preprocess_Dose_to_CT(Dose_data, CT_slice_data):
+    """
+    Transforms dose images to align with CT slice dimensions.
+
+    Parameters:
+    Dose_data: dict
+        A dictionary containing dose image metadata and pixel values.
+    CT_slice_data: dict
+        A dictionary containing the CT slice metadata and image.
+
+    Returns:
+    dict
+        The updated Dose_data dictionary with transformed images aligned to CT.
+    """
+    # Obtain Dose and CT Spacings and Positions to match between them.
+    Dose_x_spacing, Dose_y_spacing = Dose_data["Spacing"]
+    Dose_x_position, Dose_y_position, _ = Dose_data["Position"]
+
+    CT_x_spacing, CT_y_spacing = CT_slice_data["Spacing"]
+    CT_x_position, CT_y_position, _ = CT_slice_data["Position"]
+
+    # Define scales
+    scale_x = Dose_x_spacing / CT_x_spacing
+    scale_y = Dose_y_spacing / CT_y_spacing
+
+    # Define offsets
+    offset_x = int((Dose_x_position - CT_x_position) / CT_x_spacing)
+    offset_y = int((Dose_y_position - CT_y_position) / CT_y_spacing)
+
+    # Match Dose images to CT
+    Dose_data["Image"] = match_Dose_to_CT(Dose_data["Image"], CT_slice_data, scale_x, scale_y, offset_x, offset_y)
+    Dose_data["Scaled Image"] = match_Dose_to_CT(Dose_data["Scaled Image"], CT_slice_data, scale_x, scale_y, offset_x, offset_y)
+    return Dose_data
