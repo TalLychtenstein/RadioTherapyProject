@@ -2,19 +2,7 @@
 <project version="4">
   <component name="ChangeListManager">
     <list default="true" id="d9af6354-40f1-400f-bdc0-91904d319059" name="Changes" comment="">
-      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/main.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/main_params.py" beforeDir="false" afterPath="$PROJECT_DIR$/old/main_params.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/metrics_ui.py" beforeDir="false" afterPath="$PROJECT_DIR$/old/metrics_ui.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/new_main.py" beforeDir="false" afterPath="$PROJECT_DIR$/old/new_main.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/new_main_2.py" beforeDir="false" afterPath="$PROJECT_DIR$/old/new_main_2.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/new_utils.py" beforeDir="false" afterPath="$PROJECT_DIR$/old/new_utils.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/new_utils_2.py" beforeDir="false" afterPath="$PROJECT_DIR$/old/new_utils_2.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/new_utils_3.py" beforeDir="false" afterPath="$PROJECT_DIR$/old/new_utils_3.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/old/main.py" beforeDir="false" afterPath="$PROJECT_DIR$/old/main.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/old/utils.py" beforeDir="false" afterPath="$PROJECT_DIR$/old/utils.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/utils.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/visualization.py" beforeDir="false" afterPath="$PROJECT_DIR$/visualization.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/visualization_plots.py" beforeDir="false" afterPath="$PROJECT_DIR$/visualization_plots.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -228,6 +216,7 @@
       <workItem from="1753860903579" duration="18000" />
       <workItem from="1754135648015" duration="12853000" />
       <workItem from="1754152699554" duration="2593000" />
+      <workItem from="1754223112749" duration="446000" />
     </task>
     <servers />
   </component>
@@ -308,6 +297,6 @@
     <SUITE FILE_PATH="coverage/RadioTherapyProject$main__1_.coverage" NAME="main (1) Coverage Results" MODIFIED="1744538561020" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/RadioTherapyProject$test.coverage" NAME="test Coverage Results" MODIFIED="1753613122184" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/RadioTherapyProject$process_rt.coverage" NAME="process_rt Coverage Results" MODIFIED="1753610604333" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
-    <SUITE FILE_PATH="coverage/RadioTherapyProject$visualization_plots.coverage" NAME="visualization_plots Coverage Results" MODIFIED="1754154479550" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/RadioTherapyProject$visualization_plots.coverage" NAME="visualization_plots Coverage Results" MODIFIED="1754223350940" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
   </component>
 </project>

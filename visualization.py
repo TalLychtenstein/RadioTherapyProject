@@ -834,6 +834,8 @@ def plot_combined_plot(CT_data, Dose_data, ROIs_data):
                         slice_mask = vol[:, :, idx]
                     combined_mask[slice_mask > 0] = j + 1
 
+                combined_mask = np.ma.masked_where(dose_data <= 0, combined_mask)
+
                 roi_masks[i] = axes[i].imshow(
                     combined_mask,
                     cmap=cmap_roi,
