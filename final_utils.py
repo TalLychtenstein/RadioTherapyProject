@@ -250,21 +250,22 @@ def extract_ROIs_data(RS_data, CT_data):
 
         voxel_coords_list = []
 
-        for contour_seq in contour.ContourSequence:
-            slice_uid = contour_seq.ContourImageSequence[0].ReferencedSOPInstanceUID
-            z_index = CT_data['Slices'][slice_uid]['Z Index']
+        if hasattr(contour, "ContourSequence") and contour.ContourSequence:
+            for contour_seq in contour.ContourSequence:
+                slice_uid = contour_seq.ContourImageSequence[0].ReferencedSOPInstanceUID
+                z_index = CT_data['Slices'][slice_uid]['Z Index']
 
-            points = np.array(contour_seq.ContourData).reshape(-1, 3)
-            x_indices = np.round((points[:, 0] - x_origin) / x_spacing).astype(int)
-            y_indices = np.round((points[:, 1] - y_origin) / y_spacing).astype(int)
-            z_indices = np.full_like(x_indices, z_index)
+                points = np.array(contour_seq.ContourData).reshape(-1, 3)
+                x_indices = np.round((points[:, 0] - x_origin) / x_spacing).astype(int)
+                y_indices = np.round((points[:, 1] - y_origin) / y_spacing).astype(int)
+                z_indices = np.full_like(x_indices, z_index)
 
-            coords = np.stack([z_indices, y_indices, x_indices], axis=1)
-            voxel_coords_list.append(coords)
+                coords = np.stack([z_indices, y_indices, x_indices], axis=1)
+                voxel_coords_list.append(coords)
 
-        all_voxel_coords = np.vstack(voxel_coords_list)
-        filled_volume = voxelize_convex_hull(all_voxel_coords, volume_shape)
-        ROI_entry['Volume'][filled_volume] = True  # Set matching cells to True
+            all_voxel_coords = np.vstack(voxel_coords_list)
+            filled_volume = voxelize_convex_hull(all_voxel_coords, volume_shape)
+            ROI_entry['Volume'][filled_volume] = True  # Set matching cells to True
 
     return ROIs_data
 
@@ -444,7 +445,8 @@ def parse_patient_metadata(name):
     Parse metadata from patient folder name.
     Example format: 1575_SRS_LT occipital_02062021
     """
-    match = re.match(r"(\d+)_([A-Z]+)_([A-Z0-9]+)[ _]([A-Za-z0-9 ]+?)_(\d{2})(\d{2})(\d{4})", name)
+    pattern = r"(\d+)[ _]+([A-Z]+)(?:[ _]+([A-Z0-9]+))?(?:[ _]+([A-Za-z0-9 ]+))?[ _]+(\d{2})(\d{2})(\d{4})"
+    match = re.match(pattern, name)
 
     if not match:
         return {"Patient ID": "Unknown", "Treatment": "Unknown", "Region": "Unknown", "Date": "Unknown"}
