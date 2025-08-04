@@ -54,7 +54,7 @@ class PreprocessThread(QThread):
             out_dir.mkdir(parents=True, exist_ok=True)
 
             already_ready = all((out_dir / f).exists() for f in
-                                ("CT_volume.nii.gz", "Dose_volume.nii.gz", "ROIs_volume.nii.gz"))
+                                ("CT_volume.nii.gz", "Dose_volume.nii.gz", "ROIs"))
             if already_ready:
                 self.finished.emit({"ok": True, "msg": f"NIfTI already exist in {out_dir}"})
                 return
@@ -202,3 +202,4 @@ if __name__ == "__main__":
     app = QApplication(sys.argv)
     gui = ArnousPreprocessViewer(); gui.show()
     sys.exit(app.exec_())
+
