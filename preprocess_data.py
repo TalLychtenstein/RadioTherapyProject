@@ -16,7 +16,7 @@ from final_utils import (
 patient_1_files = "DICOM files/Healthy Brain/1575_First_Session/1575_SRS_LT occipital_02062021"
 patient_2_files = "DICOM files/Healthy Brain/1807_SRS_4 METS_22012020"
 patient_3_files = "DICOM files/7227/7227_WBRT_02102022"
-patients_files = [patient_3_files] #patient_1_files, patient_2_files, patient_3_files
+patients_files = [patient_1_files] #patient_1_files, patient_2_files, patient_3_files
 
 # ------------------------
 # Define resampling config

@@ -697,15 +697,13 @@ def interactive_3axis_viewer(volume, title="3-Axis Viewer"):
 
 import numpy as np
 import matplotlib.pyplot as plt
-from matplotlib.widgets import Slider, Button
-import matplotlib.patches as mpatches
 import matplotlib.colors as mcolors
+from matplotlib.widgets import Slider, Button, CheckButtons
 from skimage.measure import find_contours
-
 
 def plot_combined_plot(CT_data, Dose_data, ROIs_data):
     fig, axes = plt.subplots(1, 3, figsize=(18, 6))
-    plt.subplots_adjust(bottom=0.38)
+    plt.subplots_adjust(bottom=0.38, left=0.22)  # leave space for checkboxes
 
     views = ['axial', 'coronal', 'sagittal']
     get_ct = {
@@ -719,161 +717,198 @@ def plot_combined_plot(CT_data, Dose_data, ROIs_data):
         'sagittal': lambda i: Dose_data['Volume'][:, :, i]
     }
 
-    unique_rois = list(ROIs_data['ROIs'].keys())
-    color_list = [plt.cm.tab20.colors[i % len(plt.cm.tab20.colors)] for i in range(len(unique_rois))]
-    roi_patches = [mpatches.Patch(color=color_list[i], label=ROIs_data['ROIs'][roi]['Name'])
-                   for i, roi in enumerate(unique_rois)]
-
-    cmap_roi = mcolors.ListedColormap(['none'] + color_list)
-    norm_roi = mcolors.BoundaryNorm(boundaries=np.arange(len(unique_rois) + 2) - 0.5,
-                                    ncolors=len(unique_rois) + 1)
-
     shapes = {
         'axial': CT_data['Volume'].shape[0],
         'coronal': CT_data['Volume'].shape[1],
         'sagittal': CT_data['Volume'].shape[2]
     }
-    origins = {
-        'axial': 'upper',
-        'coronal': 'lower',
-        'sagittal': 'lower'
-    }
+    origins = {'axial': 'upper', 'coronal': 'lower', 'sagittal': 'lower'}
 
     imgs_ct, imgs_dose, sliders = [], [], []
     roi_patches_by_axis = [[] for _ in range(3)]
     roi_masks = [None, None, None]
 
-    dose_min = 0
-    dose_max = np.max(Dose_data['Volume'])
+    dose_global_max = float(np.max(Dose_data['Volume']))
+    dose_min, dose_max = 0.0, dose_global_max
 
-    cmap = plt.cm.gray.copy()
-    cmap.set_bad(color='black')
+    cmap_ct = plt.cm.gray.copy()
+    cmap_ct.set_bad(color='black')
 
     show_mode = {'mode': 'contour'}
+    view_extents = {}
+    selected_rois = set()
 
-    def update_dose_image(dose_data, view_index):
-        min_val = dose_min_slider.val
-        max_val = dose_max_slider.val
-        normed = dose_data / np.max(Dose_data['Volume'])
-        normed = np.clip(normed, 0, 1)
-        colored = plt.cm.jet(normed)
-        alpha = np.where((dose_data < min_val) | (dose_data > max_val), 0.0, dose_data)
-        colored[..., 3] = alpha
-        imgs_dose[view_index].set_data(colored)
+    # ROI mask colormap (still needed for mask display)
+    unique_rois = list(ROIs_data.get('ROIs', {}).keys())
+    color_list = [plt.cm.tab20.colors[i % len(plt.cm.tab20.colors)] for i in range(len(unique_rois))]
+    cmap_roi = mcolors.ListedColormap([(0, 0, 0, 0)] + list(color_list))
+    norm_roi = mcolors.BoundaryNorm(
+        boundaries=np.arange(len(unique_rois) + 2) - 0.5,
+        ncolors=len(unique_rois) + 1
+    )
 
+    # Precompute pixel -> mm extents
+    for view in views:
+        if view == 'axial':
+            extent = [0, CT_data["Spacing"][2] * shapes['sagittal'],
+                      0, CT_data["Spacing"][1] * shapes['coronal']]
+        elif view == 'coronal':
+            extent = [0, CT_data["Spacing"][2] * shapes['sagittal'],
+                      0, CT_data["Spacing"][0] * shapes['axial']]
+        else:
+            extent = [0, CT_data["Spacing"][1] * shapes['coronal'],
+                      0, CT_data["Spacing"][0] * shapes['axial']]
+        view_extents[view] = extent
+
+    def rgba_from_dose(dose_slice, min_val, max_val):
+        norm_color = np.clip(dose_slice / max(dose_global_max, 1e-9), 0, 1)
+        rgba = plt.cm.jet(norm_color)
+        alpha = np.zeros_like(dose_slice, dtype=float)
+        if max_val > min_val:
+            in_range = (dose_slice >= min_val) & (dose_slice <= max_val)
+            alpha[in_range] = (dose_slice[in_range] - min_val) / (max_val - min_val)
+        rgba[..., 3] = alpha
+        return rgba
+
+    # Initial draw
     for i, view in enumerate(views):
         ax = axes[i]
-        ct_data = get_ct[view](0)
-        dose_data = get_dose[view](0)
+        ct_data0 = get_ct[view](0)
+        dose0 = get_dose[view](0)
 
-        ct_img = ax.imshow(ct_data, cmap=cmap, vmin=900, vmax=1200, origin=origins[view])
-        normed = dose_data / np.max(Dose_data['Volume'])
-        normed = np.clip(normed, 0, 1)
-        colored = plt.cm.jet(normed)
-        alpha = np.where((dose_data < dose_min) | (dose_data > dose_max), 0.0, dose_data)
-        colored[..., 3] = alpha
-        dose_img = ax.imshow(colored, origin=origins[view], alpha=0.4)
+        ct_img = ax.imshow(ct_data0, cmap=cmap_ct, vmin=900, vmax=1200,
+                           origin=origins[view], extent=view_extents[view])
+        dose_img = ax.imshow(rgba_from_dose(dose0, dose_min, dose_max),
+                             origin=origins[view], extent=view_extents[view])
 
         ax.set_title(f"{view.capitalize()} Slice 0")
         ax.axis('off')
-
         imgs_ct.append(ct_img)
         imgs_dose.append(dose_img)
 
+    # Dose colorbar
     sm = plt.cm.ScalarMappable(cmap='jet')
-    sm.set_clim(0, np.max(Dose_data['Volume']))
+    sm.set_clim(0, dose_global_max)
     sm.set_array([])
     cbar = fig.colorbar(sm, ax=axes.ravel().tolist(), fraction=0.015, pad=0.02)
     cbar.set_label("Dose (Gy)")
 
-    fig.legend(handles=roi_patches, loc='upper center', ncol=5, bbox_to_anchor=(0.5, 1.05))
-
+    # Sliders
     slider_axes = [
-        plt.axes([0.25, 0.25, 0.5, 0.02]),
-        plt.axes([0.25, 0.20, 0.5, 0.02]),
-        plt.axes([0.25, 0.15, 0.5, 0.02])
+        plt.axes([0.30, 0.25, 0.5, 0.02]),
+        plt.axes([0.30, 0.20, 0.5, 0.02]),
+        plt.axes([0.30, 0.15, 0.5, 0.02])
     ]
-    dose_min_ax = plt.axes([0.25, 0.08, 0.5, 0.02])
-    dose_max_ax = plt.axes([0.25, 0.03, 0.5, 0.02])
-    button_ax = plt.axes([0.83, 0.03, 0.12, 0.04])
+    dose_min_ax = plt.axes([0.30, 0.08, 0.5, 0.02])
+    dose_max_ax = plt.axes([0.30, 0.03, 0.5, 0.02])
+    button_ax = plt.axes([0.50, 0.30, 0.12, 0.04])
 
-    dose_min_slider = Slider(dose_min_ax, 'Min Dose', 0.0, dose_max, valinit=dose_min, valstep=0.001)
-    dose_max_slider = Slider(dose_max_ax, 'Max Dose', 0.0, dose_max, valinit=dose_max, valstep=0.001)
+    dose_min_slider = Slider(dose_min_ax, 'Min Dose', 0.0, dose_global_max, valinit=dose_min, valstep=0.001)
+    dose_max_slider = Slider(dose_max_ax, 'Max Dose', 0.0, dose_global_max, valinit=dose_max, valstep=0.001)
     toggle_button = Button(button_ax, 'Show Mask')
 
-    view_extents = {}
+    # Checkbox for ROI selection
+    checkbox_ax = plt.axes([0.02, 0.15, 0.15, 0.7])
+    checkbox_labels = ["All"] + [ROIs_data['ROIs'][roi]['Name'] for roi in unique_rois]
+    checkbox_states = [False] * len(checkbox_labels)
+    checkbox = CheckButtons(checkbox_ax, labels=checkbox_labels, actives=checkbox_states)
 
-    def refresh_all():
+    # Set label colors: black for "All", ROI colors for others
+    checkbox.labels[0].set_color("black")
+    for i, color in enumerate(color_list, start=1):
+        checkbox.labels[i].set_color(color)
+
+    def refresh_all(*_):
+        min_val = dose_min_slider.val
+        max_val = dose_max_slider.val
+
         for i, view in enumerate(views):
             idx = int(sliders[i].val)
-            ct_data = get_ct[view](idx)
-            dose_data = get_dose[view](idx)
-            ct_data = np.ma.masked_where(dose_data <= 0, ct_data)
 
-            imgs_ct[i].set_data(ct_data)
-            update_dose_image(dose_data, i)
+            ct_slice = get_ct[view](idx)
+            dose_slice = get_dose[view](idx)
+            ct_slice = np.ma.masked_where(dose_slice <= 0, ct_slice)
 
-            # Clear previous ROI plots
-            for patch in roi_patches_by_axis[i]:
-                patch.remove()
+
+            imgs_ct[i].set_data(ct_slice)
+            imgs_dose[i].set_data(rgba_from_dose(dose_slice, min_val, max_val))
+
+            for line in roi_patches_by_axis[i]:
+                line.remove()
             roi_patches_by_axis[i].clear()
-            if roi_masks[i]:
+            if roi_masks[i] is not None:
                 roi_masks[i].remove()
                 roi_masks[i] = None
 
-            # Combine masks if needed
-            if show_mode['mode'] == 'mask':
-                combined_mask = np.zeros_like(dose_data, dtype=int)
-                for j, roi_id in enumerate(unique_rois):
-                    vol = ROIs_data['ROIs'][roi_id]['Volume']
-                    if view == 'axial':
-                        slice_mask = vol[idx, :, :]
-                    elif view == 'coronal':
-                        slice_mask = vol[:, idx, :]
-                    elif view == 'sagittal':
-                        slice_mask = vol[:, :, idx]
-                    combined_mask[slice_mask > 0] = j + 1
+            if unique_rois:
+                if show_mode['mode'] == 'mask':
+                    combined = np.zeros_like(dose_slice, dtype=int)
+                    roi_sizes = []
+                    for j, roi_id in enumerate(unique_rois):
+                        if j not in selected_rois:
+                            continue
+                        vol = ROIs_data['ROIs'][roi_id]['Volume']
+                        if view == 'axial':
+                            slice_mask = vol[idx, :, :]
+                        elif view == 'coronal':
+                            slice_mask = vol[:, idx, :]
+                        else:
+                            slice_mask = vol[:, :, idx]
+                        roi_sizes.append((j, roi_id, np.count_nonzero(slice_mask)))
 
-                combined_mask = np.ma.masked_where(dose_data <= 0, combined_mask)
+                    roi_sizes.sort(key=lambda x: x[2], reverse=True)
 
-                roi_masks[i] = axes[i].imshow(
-                    combined_mask,
-                    cmap=cmap_roi,
-                    norm=norm_roi,
-                    alpha=0.5,
-                    origin=origins[view],
-                    extent=view_extents[view]
-                )
-            else:  # show_mode = 'contour'
-                for j, roi_id in enumerate(unique_rois):
-                    vol = ROIs_data['ROIs'][roi_id]['Volume']
+                    for j, roi_id, _size in roi_sizes:
+                        vol = ROIs_data['ROIs'][roi_id]['Volume']
+                        if view == 'axial':
+                            slice_mask = vol[idx, :, :]
+                        elif view == 'coronal':
+                            slice_mask = vol[:, idx, :]
+                        else:
+                            slice_mask = vol[:, :, idx]
+                        combined[slice_mask.astype(bool)] = j + 1
+
+                    combined = np.ma.masked_where(dose_slice <= 0, combined)
+                    roi_masks[i] = axes[i].imshow(
+                        combined, cmap=cmap_roi, norm=norm_roi, alpha=0.5,
+                        origin=origins[view], extent=view_extents[view]
+                    )
+
+                else:  # contour mode
                     if view == 'axial':
-                        roi_slice = vol[idx, :, :]
                         spacing_x = CT_data["Spacing"][2]
                         spacing_y = CT_data["Spacing"][1]
                     elif view == 'coronal':
-                        roi_slice = vol[:, idx, :]
                         spacing_x = CT_data["Spacing"][2]
                         spacing_y = CT_data["Spacing"][0]
-                    elif view == 'sagittal':
-                        roi_slice = vol[:, :, idx]
+                    else:
                         spacing_x = CT_data["Spacing"][1]
                         spacing_y = CT_data["Spacing"][0]
 
-                    if np.any(roi_slice):
-                        contours = find_contours(roi_slice.astype(float), level=0.5)
-                        for contour in contours:
-                            y, x = contour[:, 0] * spacing_y, contour[:, 1] * spacing_x
-                            if view == 'axial':
-                                y = view_extents[view][3] - (y - view_extents[view][2])
-                            line, = axes[i].plot(x, y, color=color_list[j], linewidth=1.5)
+                    ext = view_extents[view]
+                    for j, roi_id in enumerate(unique_rois):
+                        if j not in selected_rois:
+                            continue
+                        vol = ROIs_data['ROIs'][roi_id]['Volume']
+                        roi_slice = vol[idx, :, :] if view == 'axial' else \
+                                    (vol[:, idx, :] if view == 'coronal' else vol[:, :, idx])
+
+                        if not np.any(roi_slice):
+                            continue
+
+                        for contour in find_contours(roi_slice.astype(float), level=0.5):
+                            y_mm = contour[:, 0] * spacing_y
+                            x_mm = contour[:, 1] * spacing_x
+                            if origins[view] == 'upper':
+                                y_mm = ext[3] - y_mm
+                            line, = axes[i].plot(x_mm, y_mm, color=color_list[j], linewidth=1.5)
                             roi_patches_by_axis[i].append(line)
 
             axes[i].set_title(f"{view.capitalize()} Slice {idx}")
 
         fig.canvas.draw_idle()
 
-    def toggle_display(event):
+    def toggle_display(_event):
         if show_mode['mode'] == 'contour':
             show_mode['mode'] = 'mask'
             toggle_button.label.set_text('Show Contour')
@@ -882,25 +917,51 @@ def plot_combined_plot(CT_data, Dose_data, ROIs_data):
             toggle_button.label.set_text('Show Mask')
         refresh_all()
 
+    updating_checkboxes = False
+    def on_checkbox_clicked(label):
+        nonlocal selected_rois, updating_checkboxes
+        if updating_checkboxes:
+            return
+
+        if label == "All":
+            updating_checkboxes = True
+            if len(selected_rois) == len(unique_rois):
+                selected_rois.clear()
+                for i in range(1, len(checkbox_labels)):
+                    if checkbox.get_status()[i]:
+                        checkbox.set_active(i)
+            else:
+                selected_rois = set(range(len(unique_rois)))
+                for i in range(1, len(checkbox_labels)):
+                    if not checkbox.get_status()[i]:
+                        checkbox.set_active(i)
+            updating_checkboxes = False
+        else:
+            idx = checkbox_labels.index(label) - 1
+            if idx in selected_rois:
+                selected_rois.remove(idx)
+            else:
+                selected_rois.add(idx)
+
+            updating_checkboxes = True
+            all_checked = (len(selected_rois) == len(unique_rois))
+            if checkbox.get_status()[0] != all_checked:
+                checkbox.set_active(0)
+            updating_checkboxes = False
+
+        refresh_all()
+
     toggle_button.on_clicked(toggle_display)
-    dose_min_slider.on_changed(lambda val: refresh_all())
-    dose_max_slider.on_changed(lambda val: refresh_all())
+    dose_min_slider.on_changed(refresh_all)
+    dose_max_slider.on_changed(refresh_all)
+    checkbox.on_clicked(on_checkbox_clicked)
 
     for i, view in enumerate(views):
-        view_slider = Slider(slider_axes[i], f'{view.capitalize()} Slice', 0, shapes[view] - 1, valinit=0, valstep=1)
-
-        if view == 'axial':
-            extent = [0, CT_data["Spacing"][2] * shapes['sagittal'], 0, CT_data["Spacing"][1] * shapes['coronal']]
-        elif view == 'coronal':
-            extent = [0, CT_data["Spacing"][2] * shapes['sagittal'], 0, CT_data["Spacing"][0] * shapes['axial']]
-        elif view == 'sagittal':
-            extent = [0, CT_data["Spacing"][1] * shapes['coronal'], 0, CT_data["Spacing"][0] * shapes['axial']]
-
-        view_extents[view] = extent
-        imgs_ct[i].set_extent(extent)
-        imgs_dose[i].set_extent(extent)
-
-        view_slider.on_changed(lambda val, v=view, i=i: refresh_all())
-        sliders.append(view_slider)
+        sld = Slider(slider_axes[i], f'{view.capitalize()} Slice', 0, shapes[view] - 1, valinit=0, valstep=1)
+        sld.on_changed(lambda _val, i=i: refresh_all())
+        sliders.append(sld)
 
     plt.show()
+
+
+
