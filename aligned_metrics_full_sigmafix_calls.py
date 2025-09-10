@@ -214,7 +214,7 @@ def resample_dose_to_ct(dose_ds: pydicom.dataset.FileDataset,
 # ──────────────────────────────────────────────────────────────────────────────
 
 def build_roi_masks(rs: pydicom.dataset.FileDataset,
-                    ct_img: sitk.Image,
+                    ct_img: sitk.Image,  log,
                     verbose: bool = True) -> Dict[str, np.ndarray]:
     """
     Rasterize 2D polygon contours from RTSTRUCT onto the CT grid.
@@ -263,6 +263,7 @@ def build_roi_masks(rs: pydicom.dataset.FileDataset,
             masks[name] = m
         elif verbose:
             print(f"⚠️  ROI '{name}' contours lay outside the CT – skipped")
+        log.emit("🔬     Finished building mask for ROI '{}'".format(name))
 
     return masks
 
@@ -347,12 +348,12 @@ def compute_mask_volume(mask: np.ndarray, spacing_mm: Tuple[float, float, float]
     return float(mask.sum()) * float(spacing_mm[0] * spacing_mm[1] * spacing_mm[2]) / 1000.0
 
 
-def compute_abs_dvhs(masks: Dict[str, np.ndarray],
-                     dose_arr: np.ndarray,
-                     voxel_vol_cc: float,
-                     prescription: Optional[float],
-                     spacing_mm: Tuple[float, float, float],
-                     step: float = 0.1) -> Dict[str, pd.DataFrame]:
+def compute_abs_dvhs(masks,
+                     dose_arr,
+                     voxel_vol_cc,
+                     prescription,
+                     spacing_mm,
+                     log):
     """
     Compute absolute DVH tables (0.1 Gy bins) per ROI.
     """
@@ -361,13 +362,9 @@ def compute_abs_dvhs(masks: Dict[str, np.ndarray],
 
     for roi, mask in masks.items():
         dose_vals, weights = _sample_native_dose(mask, spacing_mm, dose_arr)
-        df = dvh_table_abs(dose_vals, weights, voxel_vol_cc, step, prescription, max_dose=global_max)
+        df = dvh_table_abs(dose_vals, weights, voxel_vol_cc, 0.1, prescription, max_dose=global_max)
         dvh_abs[roi] = df
-
-        if spacing_mm is not None and not df.empty:
-            v_mask = compute_mask_volume(mask, spacing_mm)
-            v_dvh = float(df["Volume [cm³]"].iloc[0])
-            print(f"{roi:30s}: voxelised = {v_mask:7.3f} cc | DVH = {v_dvh:7.3f} cc | Δ = {v_dvh - v_mask:+7.3f} cc")
+        log.emit("📈     Finished calculating DVH curve for ROI '{}'".format(roi))
 
     return dvh_abs
 
@@ -458,8 +455,8 @@ def compute_roi_metrics(masks: Dict[str, np.ndarray],
                         voxel_vol_cc: float,
                         prescription: Optional[float],
                         spacing_mm: Tuple[float, float, float],
-                        smooth_sigma: float = SMOOTH_SIGMA_MM,
-                        healthy_brain_name: str = "Brain") -> pd.DataFrame:
+                        smooth_sigma: float,
+                        log) -> pd.DataFrame:
     """
     Compute per‑ROI dose/volume metrics and selected Vx (cc) for healthy brain.
     """
@@ -515,6 +512,7 @@ def compute_roi_metrics(masks: Dict[str, np.ndarray],
                 row[f"V{thr}_cc"] = vx
 
         rows.append(row)
+        log.emit("📊     Finished calculating metrics for ROI '{}'".format(roi))
 
     return pd.DataFrame(rows)
 

@@ -11,7 +11,7 @@ from matplotlib.figure import Figure
 import matplotlib.pyplot as plt                           # ← new
 from matplotlib import colors as mcolors                  # ← new
 
-from aligned_metrics_full import plot_all_roi_dvhs
+from aligned_metrics_full_sigmafix_calls import plot_all_roi_dvhs
 
 class DVHPlotWidget(QWidget):
     """
@@ -74,6 +74,11 @@ class DVHPlotWidget(QWidget):
         self._prescription = prescription
         self._populate_list()
         self._redraw()
+
+    def clear(self):
+        self.figure.clear()
+        self.canvas.draw()
+        self.roi_list.clear()
 
     # =====================================================================
     # internals

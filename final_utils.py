@@ -456,7 +456,7 @@ def parse_patient_metadata(name):
     return {
         "Patient ID": pid,
         "Treatment": treatment,
-        "Region": f"{side} {region}",
+        "Region": f"{side} {region}" if side else region,
         "Date": date
     }
 

@@ -2,6 +2,7 @@ import os
 import time
 import numpy as np
 import scipy.ndimage
+import glob
 
 from final_utils import (
     load_CT_data, load_RT_data,
@@ -13,10 +14,14 @@ from final_utils import (
 # ------------------------
 # Define patient DICOM paths
 # ------------------------
-patient_1_files = "DICOM files/Healthy Brain/1575_First_Session/1575_SRS_LT occipital_02062021"
-patient_2_files = "DICOM files/Healthy Brain/1807_SRS_4 METS_22012020"
-patient_3_files = "DICOM files/7227/7227_WBRT_02102022"
-patients_files = [patient_1_files] #patient_1_files, patient_2_files, patient_3_files
+# Get all patient CT subdirectories in one go
+patients_files = [
+    patient_files_folder
+    for patient_folder in glob.glob("/home/shared/full_resampled/*")
+    if os.path.isdir(patient_folder)
+    for patient_files_folder in glob.glob(os.path.join(patient_folder, "CT", "*"))
+    if os.path.isdir(patient_files_folder)
+]
 
 # ------------------------
 # Define resampling config
