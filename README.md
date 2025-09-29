@@ -1,7 +1,18 @@
 # 📘 RadioTherapyProject — User Guide
 
+
+## How to clone the repo 
+
+---
+
+*git clone https://github.com/<USER_OR_ORG>/RadioTherapyProject.git*
+
+---
+
 ## How to activate the env 
 ---
+*Option 1 : through the yml file in /home/shared/env_for_RT_project*
+
 open the terminal 
 
 1. Navigate to the folder with the Yml file
@@ -20,13 +31,18 @@ you should see arvous.yml
    
 	*conda activate arvous*
 
+*Option 2 : through the repo 
+
+*git clone https://github.com/<user-or-org>/RadioTherapyProject.git*
+
+*cd RadioTherapyProject*
+
+*conda env create -f arvous.yml*
+
+*conda activate arvous*
+
+
 ---
-
-## How to clone the repo 
-
----
-
-*git clone https://github.com/<USER_OR_ORG>/RadioTherapyProject.git*
 
 
 
@@ -91,8 +107,8 @@ Patient/
 - Use the **ROIs to Display** panel to select structures of interest.  
 - Selected ROIs appear in the DVH plot.  
 - Change axes as needed:
-  - **X-axis** → typically *dose*.  
-  - **Y-axis** → typically *volume*.  
+  - **X-axis** →  *dose* or *relative dose*.  
+  - **Y-axis** →  *volume* or *relative volume*.  
 
 
 
