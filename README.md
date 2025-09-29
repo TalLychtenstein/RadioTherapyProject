@@ -42,6 +42,10 @@ you should see arvous.yml
 
 ---
 
+---
+## The script you need to run is called arvous_v2.py 
+---
+
 
 
 
