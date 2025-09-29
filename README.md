@@ -31,7 +31,7 @@ you should see arvous.yml
    
 	*conda activate arvous*
 
-*Option 2 : through the repo *
+*Option 2 : through the repo*
 
 *cd RadioTherapyProject*
 
