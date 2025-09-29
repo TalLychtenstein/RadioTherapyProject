@@ -4,12 +4,11 @@
 ## How to clone the repo 
 
 ---
-
-*git clone https://github.com/TalLychtenstein/RadioTherapyProject.git*
+*git clone git@github.com:TalLychtenstein/RadioTherapyProject.git* 
 
 or
 
-*git clone git@github.com:TalLychtenstein/RadioTherapyProject.git*  (recommended)
+*git clone https://github.com/TalLychtenstein/RadioTherapyProject.git* 
 
 ---
 
