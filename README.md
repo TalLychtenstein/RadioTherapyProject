@@ -50,7 +50,7 @@ you should see arvous.yml
 ---
 ## Steps to Run arvous.py in PyCharm 
 
-Option 1 : opening the folder manually 
+This is in case cloning from git doesn't work
 
 1. Open the Project in PyCharm
    
@@ -81,7 +81,6 @@ PyCharm will now treat this as the project folder. You should see arvous.py in t
 
 
 Here is an example of how it should look , the path to conda will be different but that’s okay :)
-
 
 
 ## How to Use the Interface
