@@ -5,11 +5,11 @@
 
 ---
 
-*git clone https://github.com/yourUSERNAME/RadioTherapyProject.git*
+*git clone https://github.com/TalLychtenstein/RadioTherapyProject.git*
 
 or
 
-*git clone git@github.com:yourUSERNAME/RadioTherapyProject.git*
+*git clone git@github.com:TalLychtenstein/RadioTherapyProject.git*
 
 
 ---
