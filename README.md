@@ -9,34 +9,16 @@
 
 or
 
-*git clone git@github.com:TalLychtenstein/RadioTherapyProject.git*
+*git clone git@github.com:TalLychtenstein/RadioTherapyProject.git*  (recommended)
 
 
 ---
 
 ## How to activate the env 
 ---
-*Option 1 : through the yml file in /home/shared/env_for_RT_project*
+*
 
-open the terminal 
-
-1. Navigate to the folder with the Yml file
-   
-	*cd /home/shared/env_for_RT_project*
-
-	*ls*
-
-you should see arvous.yml 
-
-3. Create the environment
-   
-	*conda env create -f arvous.yml*
-
-5. Activate the environment
-   
-	*conda activate arvous*
-
-*Option 2 : through the repo*
+*Option 1 : through the repo*
 
 *cd RadioTherapyProject*
 
@@ -44,43 +26,24 @@ you should see arvous.yml
 
 *conda activate arvous*
 
+*Option 2 : through the yml file in /home/shared/env_for_RT_project* just in case doesn't work
+
+open the terminal 
+   
+	*cd /home/shared/env_for_RT_project*
+
+	*ls*
+
+you should see arvous.yml 
+   
+	*conda env create -f arvous.yml*
+   
+	*conda activate arvous*
+
 
 ---
 
----
-## Steps to Run arvous.py in PyCharm 
 
-This is in case cloning from git doesn't work
-
-1. Open the Project in PyCharm
-   
-	Launch PyCharm.
-
-	Go to File → Open.
-
-      Browse to: /home/shared/RadioTherapyProject_tal_and_daniel
-   
-      Click OK
-   
-PyCharm will now treat this as the project folder. You should see arvous.py in the file tree.
-
-2.	Configure the Conda Interpreter (arvous)
-
-	In PyCharm, open:
-	
-	File → Settings →Python → Interpreter
-
-	click on Add Interpreter → choose select existing for Environment ( Top)→
-	
-	choose conda for Type → choose arvous for Environment (bottom)→click OK
-
-	click Apply then OK .
-
-
-<img width="1176" height="749" alt="seting up interpreter" src="https://github.com/user-attachments/assets/d0790919-b64b-4753-9a2e-2d799b85ff62" />
-
-
-Here is an example of how it should look , the path to conda will be different but that’s okay :)
 
 
 ## How to Use the Interface
@@ -203,6 +166,41 @@ When you run the application, the interface is organized into several key panels
 - **Middle-right = ROI metrics**  
 - **Bottom = DVH plots with ROI selection**  
 
+
+---
+## Steps to Run arvous.py in PyCharm 
+
+This is in case cloning from git doesn't work
+
+1. Open the Project in PyCharm
+   
+	Launch PyCharm.
+
+	Go to File → Open.
+
+      Browse to: /home/shared/RadioTherapyProject_tal_and_daniel
+   
+      Click OK
+   
+PyCharm will now treat this as the project folder. You should see arvous.py in the file tree.
+
+2.	Configure the Conda Interpreter (arvous)
+
+	In PyCharm, open:
+	
+	File → Settings →Python → Interpreter
+
+	click on Add Interpreter → choose select existing for Environment ( Top)→
+	
+	choose conda for Type → choose arvous for Environment (bottom)→click OK
+
+	click Apply then OK .
+
+
+<img width="1176" height="749" alt="seting up interpreter" src="https://github.com/user-attachments/assets/d0790919-b64b-4753-9a2e-2d799b85ff62" />
+
+
+Here is an example of how it should look , the path to conda will be different but that’s okay :)
 
 
 
