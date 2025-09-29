@@ -64,17 +64,17 @@ Option 1 : opening the folder manually
    
 PyCharm will now treat this as the project folder. You should see arvous.py in the file tree.
 
-Configure the Conda Interpreter (arvous)
+2.	Configure the Conda Interpreter (arvous)
 
-In PyCharm, open:
+	In PyCharm, open:
 	
-File → Settings →Python → Interpreter
+	File → Settings →Python → Interpreter
 
-click on Add Interpreter → choose select existing for Environment ( Top)→
+	click on Add Interpreter → choose select existing for Environment ( Top)→
 	
-choose conda for Type → choose arvous for Environment (bottom)→click OK
+	choose conda for Type → choose arvous for Environment (bottom)→click OK
 
-click Apply then OK .
+	click Apply then OK .
 
 
 <img width="1176" height="749" alt="seting up interpreter" src="https://github.com/user-attachments/assets/d0790919-b64b-4753-9a2e-2d799b85ff62" />
