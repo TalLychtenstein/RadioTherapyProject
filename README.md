@@ -4,15 +4,12 @@
 ## How to clone the repo 
 
 ---
-*
-git clone https://github.com/TalLychtenstein/RadioTherapyProject.git
-*
+
+*git clone https://github.com/TalLychtenstein/RadioTherapyProject.git*
 
 or
-*
-git clone git@github.com:TalLychtenstein/RadioTherapyProject.git*  (recommended)
-*
 
+*git clone git@github.com:TalLychtenstein/RadioTherapyProject.git*  (recommended)
 
 ---
 
@@ -20,29 +17,28 @@ git clone git@github.com:TalLychtenstein/RadioTherapyProject.git*  (recommended)
 ---
 
 *Option 1 : through the repo*
-*
+
 
 *cd RadioTherapyProject*
 
 *conda env create -f arvous.yml*
 
 *conda activate arvous*
-*
+
 
 *Option 2 : through the yml file in /home/shared/env_for_RT_project* just in case doesn't work
 
 open the terminal 
-*
-	*cd /home/shared/env_for_RT_project*
 
-	*ls*
+*cd /home/shared/env_for_RT_project*
+
+*ls*
 
 you should see arvous.yml 
    
-	*conda env create -f arvous.yml*
+*conda env create -f arvous.yml*
    
-	*conda activate arvous*
-*
+*conda activate arvous*
 
 
 ---
