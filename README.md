@@ -99,14 +99,7 @@ Patient/
   - See **ROI masks** overlaid on anatomical images.  
   - Interactively scroll through slices for spatial validation.  
 
----
-
-### 6. Visualize DVHs
-- Use the **ROIs to Display** panel to select structures of interest.  
-- Selected ROIs appear in the DVH plot.  
-- Change axes as needed:
-  - **X-axis** →  *dose* or *relative dose*.  
-  - **Y-axis** →  *volume* or *relative volume*.  
+--- 
 
 
 
