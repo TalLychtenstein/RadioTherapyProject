@@ -5,7 +5,12 @@
 
 ---
 
-*git clone https://github.com/<USER_OR_ORG>/RadioTherapyProject.git*
+*git clone https://github.com/yourUSERNAME/RadioTherapyProject.git*
+
+or
+
+*git clone git@github.com:yourUSERNAME/RadioTherapyProject.git*
+
 
 ---
 
@@ -41,6 +46,40 @@ you should see arvous.yml
 
 
 ---
+
+---
+## Steps to Run arvous.py in PyCharm 
+
+Option 1 : opening the folder manually 
+
+1. Open the Project in PyCharm
+   
+	Launch PyCharm.
+
+	Go to File → Open.
+
+      Browse to: /home/shared/RadioTherapyProject_tal_and_daniel
+   
+      Click OK
+   
+PyCharm will now treat this as the project folder. You should see arvous.py in the file tree.
+3. Configure the Conda Interpreter (arvous)
+
+	In PyCharm, open:
+	
+	File → Settings →Python → Interpreter
+
+	click on Add Interpreter → choose select existing for Environment ( Top)→
+	
+	choose conda for Type → choose arvous for Environment (bottom)→click OK
+
+	click Apply then OK .
+
+
+	<img width="1176" height="749" alt="seting up interpreter" src="https://github.com/user-attachments/assets/d0790919-b64b-4753-9a2e-2d799b85ff62" />
+
+
+	Here is an example of how it should look , the path to conda will be different but that’s okay :)
 
 
 
