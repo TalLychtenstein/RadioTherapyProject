@@ -114,5 +114,63 @@ Patient/
 <img width="1427" height="893" alt="image" src="https://github.com/user-attachments/assets/118d5846-fa71-4784-af3a-9dbdfb2e281a" />
 
 
+## 🖥️ ARVOUS Interface Overview
+
+When you run the application, the interface is organized into several key panels:
+
+---
+
+### 🔧 Settings Panel (top section)
+- Displays the **resampling configuration** you selected (e.g., shape/spacing, voxel size).  
+- Shows the chosen **output path** where results will be saved.  
+
+---
+
+### 🩺 Processing Patient Record
+- Provides **patient/session details**, such as:
+  - Patient ID  
+  - Treatment type (e.g., SRS, WBRT)  
+  - Targeted region (e.g., right frontal, multiple mets)  
+  - Session date  
+- Displays the **input path** for the dataset being processed.  
+
+---
+
+### 📊 Metadata Table (left side)
+- Contains **general treatment metadata**:
+  - Prescription dose  
+  - Number of fractions  
+  - Dose per fraction  
+
+---
+
+### 📑 ROI Metrics Table (right side)
+- Lists all **Regions of Interest (ROIs)**.  
+- Provides detailed metrics per ROI:
+  - **Volume (cc)**  
+  - **Minimum, Maximum, Mean, Median, Mode, and Standard Deviation dose (Gy)**  
+  - **D2, D50, D98 values** (Gy)  
+  - **Homogeneity Index (HI)** and **Conformity Index (CI)**  
+
+---
+
+### 📈 DVH Plots (bottom)
+- Shows **Dose–Volume Histograms (DVHs)** for selected ROIs.  
+- You can:
+  - Select which ROIs to display from the **ROI list** on the left.  
+  - Overlay multiple DVHs for comparison.  
+  - Adjust axis definitions:
+    - **X-axis** → *absolute dose* or *relative dose [% Rx]*  
+    - **Y-axis** → *absolute volume (cc)* or *relative volume [%]*  
+
+---
+
+✅ In short:  
+- **Top = settings & patient info**  
+- **Middle-left = metadata table**  
+- **Middle-right = ROI metrics**  
+- **Bottom = DVH plots with ROI selection**  
+
+
 
 
