@@ -33,8 +33,6 @@ you should see arvous.yml
 
 *Option 2 : through the repo 
 
-*git clone https://github.com/<user-or-org>/RadioTherapyProject.git*
-
 *cd RadioTherapyProject*
 
 *conda env create -f arvous.yml*
