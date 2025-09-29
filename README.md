@@ -58,7 +58,7 @@ you should see arvous.yml
 
 ### 1. Batch Processing 
 - Click **Batch Processing**.  
-- Choose the root dataset folder (must be organized as in the Radiation_plans_TABM folder).  
+- Choose the root dataset folder (must be organized as in the full resampled folder).  
 - ARVOUS will automatically process **all patient sessions** in that dataset and add them to the output folder.  
 
 ---
