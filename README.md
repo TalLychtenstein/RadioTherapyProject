@@ -15,7 +15,7 @@ or
 ## How to activate the env 
 ---
 
-*Option 1 : through the repo*
+Option 1 : through the repo
 
 
 *cd RadioTherapyProject*
@@ -25,7 +25,7 @@ or
 *conda activate arvous*
 
 
-*Option 2 : through the yml file in /home/shared/env_for_RT_project* just in case doesn't work
+Option 2 : through the yml file in /home/shared/env_for_RT_project just in case cloning the repo doesn't work
 
 open the terminal 
 
