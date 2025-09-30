@@ -12,32 +12,18 @@ or
 
 ---
 
-## How to activate the env 
+## How to activate the env and open script 
 ---
 
-Option 1 : through the repo
 
+
+*conda activate arvous*
 
 *cd RadioTherapyProject*
 
-*conda env create -f arvous.yml*
-
-*conda activate arvous*
+*Python3 arvous_v2.py*
 
 
-Option 2 : through the yml file in /home/shared/env_for_RT_project just in case cloning the repo doesn't work
-
-open the terminal 
-
-*cd /home/shared/env_for_RT_project*
-
-*ls*
-
-you should see arvous.yml 
-   
-*conda env create -f arvous.yml*
-   
-*conda activate arvous*
 
 
 ---
