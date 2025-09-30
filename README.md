@@ -202,9 +202,7 @@ PyCharm will now treat this as the project folder. You should see arvous.py in t
 <img width="1176" height="749" alt="seting up interpreter" src="https://github.com/user-attachments/assets/d0790919-b64b-4753-9a2e-2d799b85ff62" />
 
 
-Here is an example of how it should look , the path to conda will be different but that’s okay :)
-
-You can now find the arvous_v2.py and run it 
+Here is an example of how it should look , the path to conda will be different but that’s okay :) 
 
 
 
