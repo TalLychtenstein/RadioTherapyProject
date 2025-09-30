@@ -171,7 +171,7 @@ When you run the application, the interface is organized into several key panels
 
 
 ---
-## Steps to add the env in PyCharm 
+## Steps to add the env in PyCharm and to open the project 
 
 
 1. Open the Project in PyCharm
