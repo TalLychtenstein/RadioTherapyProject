@@ -171,9 +171,8 @@ When you run the application, the interface is organized into several key panels
 
 
 ---
-## Steps to Run arvous.py in PyCharm 
+## Steps to add the env in PyCharm 
 
-This is in case cloning from git doesn't work
 
 1. Open the Project in PyCharm
    
@@ -204,6 +203,8 @@ PyCharm will now treat this as the project folder. You should see arvous.py in t
 
 
 Here is an example of how it should look , the path to conda will be different but that’s okay :)
+
+You can now find the arvous_v2.py and run it 
 
 
 
