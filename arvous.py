@@ -38,6 +38,36 @@ from skimage.measure import find_contours
 SMOOTH_SIGMA_MM: float = 0.75
 
 def plot_combined_plot(CT_data, Dose_data, ROIs_data):
+    """
+        Interactive viewer for CT, Dose, and ROI data in three orthogonal views
+        (axial, coronal, sagittal).
+
+        Features:
+        ----------
+        • Displays CT grayscale slices in three views.
+        • Overlays dose distribution with adjustable min/max thresholds.
+        • Provides checkboxes to select which ROIs to display.
+        • Allows toggling between contour mode and filled mask mode for ROIs.
+        • Interactive sliders to navigate through slices for each view.
+
+        Parameters:
+        -----------
+        CT_data : dict
+            Dictionary with keys:
+              - "Volume": 3D numpy array [Z,Y,X] with CT values.
+              - "Spacing": voxel spacing in mm (z, y, x).
+              - "Position": origin coordinates (z, y, x).
+        Dose_data : dict
+            Dictionary with keys:
+              - "Volume": 3D numpy array [Z,Y,X] with dose values (Gy).
+              - "Spacing": voxel spacing in mm (z, y, x).
+              - "Position": origin coordinates (z, y, x).
+        ROIs_data : dict
+            Dictionary with keys:
+              - "ROIs": mapping {roi_id: {"Name": str, "Color": list|None, "Volume": 3D mask}}.
+              - "Spacing": voxel spacing in mm (z, y, x).
+              - "Position": origin coordinates (z, y, x).
+    """
     fig, axes = plt.subplots(1, 3, figsize=(18, 6))
     plt.subplots_adjust(bottom=0.38, left=0.22)  # leave space for checkboxes
 
@@ -301,7 +331,35 @@ def plot_combined_plot(CT_data, Dose_data, ROIs_data):
 
 def load_nifti_volume(path):
     """
-    Load a NIfTI file and return a dictionary with volume, spacing, and origin.
+    Load a NIfTI medical image (.nii or .nii.gz) and convert it into a
+    consistent Python dictionary format.
+
+    Parameters
+    ----------
+    path : str or pathlib.Path
+        File path to the NIfTI file on disk.
+
+    Returns
+    -------
+    dict
+        A dictionary containing:
+          • "Volume" : numpy.ndarray
+              3D array [Z, Y, X] with voxel values (float32).
+          • "Spacing" : numpy.ndarray
+              Physical size of each voxel in millimeters [z, y, x].
+          • "Position" : numpy.ndarray
+              World-coordinate origin of the first voxel (in mm), ordered [z, y, x].
+
+    Notes
+    -----
+    • This function standardizes all outputs to the internal convention
+      used in this project: arrays are indexed as [Z, Y, X].
+    • NIfTI spacing is originally stored as (x, y, z) in the header;
+      it is reversed here to (z, y, x) for consistency.
+    • The affine matrix encodes the spatial position of the volume;
+      we extract its translation part (x, y, z) and reverse it to (z, y, x).
+    • All voxel values are cast to float32 to save memory and ensure
+      compatibility with downstream computations.
     """
     nii = nib.load(path)
     volume = nii.get_fdata().astype(np.float32)
@@ -315,10 +373,41 @@ def load_nifti_volume(path):
 
 def load_preprocessed_volumes(files_path):
     """
-    Load CT, Dose, and ROI volumes from .nii.gz files in the specified directory.
+       Load preprocessed CT, Dose, and ROI volumes from NIfTI files in a directory.
 
-    Returns:
-        CT_data, Dose_data, ROIs_data
+       This function expects that the given folder contains:
+         • CT_volume.nii.gz
+         • Dose_volume.nii.gz
+         • ROIs/roi_metadata.json         (optional metadata)
+         • ROIs/ROI_*_volume.nii.gz       (one file per ROI mask)
+
+       Parameters
+       ----------
+       files_path : str or pathlib.Path
+           Path to the directory that holds the preprocessed volumes.
+
+       Returns
+       -------
+       CT_data : dict
+           Dictionary from `load_nifti_volume` with CT volume, spacing, and position.
+       Dose_data : dict
+           Dictionary from `load_nifti_volume` with Dose volume, spacing, and position.
+       ROIs_data : dict
+           Dictionary with ROI information:
+             • "ROIs": mapping {roi_number: {"Name", "Color", "Volume"}}
+                 - "Name": ROI name (from metadata, or fallback ROI_x)
+                 - "Color": Optional RGB color (from metadata, else None)
+                 - "Volume": 3D binary mask [Z,Y,X] (bool)
+             • "Spacing": voxel spacing (z,y,x) inherited from CT
+             • "Position": origin coordinates (z,y,x) inherited from CT
+
+       Notes
+       -----
+       • The function uses `load_nifti_volume` to ensure consistent [Z,Y,X] arrays.
+       • ROI volumes are cast to boolean masks (True for ROI voxels).
+       • If `roi_metadata.json` is missing, ROI names default to "ROI_<number>".
+       • Malformed ROI filenames (not matching `ROI_<number>_...`) are skipped.
+       • Spacing/position for all ROIs are assumed identical to CT.
     """
 
     # --- Load CT ---
@@ -363,13 +452,28 @@ def load_preprocessed_volumes(files_path):
 
 def save_volume_as_nifti(volume, spacing, output_path, affine_origin=(0, 0, 0)):
     """
-    Save a 3D NumPy volume as a NIfTI file.
+    Save a 3D NumPy volume to disk as a NIfTI (.nii.gz) file.
 
-    Parameters:
-    - volume (np.ndarray): The 3D volume (Z, Y, X).
-    - spacing (tuple): Voxel spacing (Z, Y, X) in mm.
-    - output_path (str): Where to save the .nii.gz file.
-    - affine_origin (tuple): Origin of the image (Z, Y, X), defaults to (0,0,0).
+    Parameters
+    ----------
+    volume : np.ndarray
+        3D array [Z, Y, X] containing the image data to be saved.
+    spacing : tuple or list of float
+        Physical voxel spacing in millimeters, ordered (z, y, x).
+    output_path : str or pathlib.Path
+        File path where the NIfTI file will be saved (typically ending with .nii.gz).
+    affine_origin : tuple of float, optional
+        World-coordinate origin of the volume (in mm), ordered (z, y, x).
+        Defaults to (0, 0, 0).
+
+    Notes
+    -----
+    • Internally, the affine transformation matrix is built as a diagonal
+      matrix with voxel spacings on the diagonal, reordered into (x, y, z).
+    • The origin is inserted into the affine matrix as translation values.
+    • The saved file can be loaded later with :func:`load_nifti_volume`
+      to recover the same volume, spacing, and position (within rounding).
+    • Data is always cast to float32 to ensure compatibility and reduce file size.
     """
     affine = np.diag(list(spacing)[::-1] + [1])
     affine[:3, 3] = affine_origin[::-1]  # Put origin in correct position (X, Y, Z)
@@ -378,6 +482,44 @@ def save_volume_as_nifti(volume, spacing, output_path, affine_origin=(0, 0, 0)):
     nib.save(nifti_img, output_path)
 
 def save_volumes(CT_data, Dose_data, ROIs_data, output_path):
+    """
+        Save CT, Dose, and ROI volumes to NIfTI (.nii.gz) files, along with ROI metadata.
+
+        This function creates a standardized folder structure inside `output_path`:
+          • CT_volume.nii.gz
+          • Dose_volume.nii.gz
+          • ROIs/
+              ├── ROI_<number>_volume.nii.gz   (one file per ROI mask)
+              └── roi_metadata.json            (ROI names and colors)
+
+        Parameters
+        ----------
+        CT_data : dict
+            Dictionary containing CT volume, spacing, and position.
+            Typically produced by `load_nifti_volume`.
+        Dose_data : dict
+            Dictionary containing Dose volume, spacing, and position.
+        ROIs_data : dict
+            Dictionary containing ROI data with keys:
+              • "ROIs": mapping {roi_number: {"Name", "Color", "Volume"}}
+                  - "Name": ROI name (str, defaults to "ROI_<number>")
+                  - "Color": Optional list of 3 ints [R, G, B], or None
+                  - "Volume": 3D binary mask [Z,Y,X] (bool or int)
+              • "Spacing": voxel spacing (z,y,x)
+              • "Position": origin coordinates (z,y,x)
+        output_path : str or pathlib.Path
+            Directory where all volumes and metadata will be saved.
+
+        Notes
+        -----
+        • Volumes are saved with :func:`save_volume_as_nifti`, ensuring consistent
+          affine construction from spacing and position.
+        • ROI masks are saved as individual files under `ROIs/`.
+        • ROI metadata (name, color) is collected and written to JSON
+          (`roi_metadata.json`) in the ROIs folder.
+        • Colors are validated and converted to standard Python int lists before saving.
+        • The function automatically creates the `ROIs/` folder if it does not exist.
+    """
     # Save CT
     CT_output_path = os.path.join(output_path, "CT_volume.nii.gz")
     save_volume_as_nifti(volume=CT_data["Volume"], spacing=CT_data["Spacing"],
@@ -424,25 +566,39 @@ def save_volumes(CT_data, Dose_data, ROIs_data, output_path):
 
 def match_Dose_to_CT(Dose_data, CT_data, scales, offsets):
     """
-    Aligns Dose images to the CT slice dimensions.
+    Resample and align the Dose volume so that it matches the CT volume grid.
 
-    Parameters:
-    Dose_data: numpy.ndarray
-        A dictionary containing the dose metadata.
-    CT_data: dict
-        A dictionary containing the CT metadata.
-    scale_x: float
-        Scaling factor along the x-axis.
-    scale_y: float
-        Scaling factor along the y-axis.
-    offset_x: int
-        Offset in pixels along the x-axis.
-    offset_y: int
-        Offset in pixels along the y-axis.
+    Parameters
+    ----------
+    Dose_data : dict
+        Dictionary containing the dose volume and metadata, typically from
+        :func:`load_nifti_volume`. Must contain key:
+          • "Volume": 3D numpy array [Z,Y,X] (float32 Gy).
+    CT_data : dict
+        Dictionary containing the CT volume and metadata, typically from
+        :func:`load_nifti_volume`. Must contain key:
+          • "Volume": 3D numpy array [Z,Y,X] (float32 HU).
+    scales : tuple of float (scale_z, scale_y, scale_x)
+        Scaling factors between Dose and CT voxel dimensions.
+        Values > 1 shrink the dose grid; values < 1 expand it.
+    offsets : tuple of float (offset_z, offset_y, offset_x)
+        Translation offsets (in voxels) applied after scaling,
+        mapping Dose coordinates into CT coordinates.
 
-    Returns:
+    Returns
+    -------
     numpy.ndarray
-        A transformed 3D array of dose images aligned with the CT slice.
+        Resampled 3D numpy array [Z,Y,X] of the dose volume aligned
+        to the CT grid (linear interpolation).
+
+    Notes
+    -----
+    • The transformation is performed using `scipy.ndimage.affine_transform`,
+      which maps output coordinates (CT space) back into input coordinates (Dose space).
+    • The `affine_matrix` rescales the Dose axes to match CT voxel dimensions.
+    • The `offset` shifts the Dose volume so that anatomical landmarks align.
+    • Interpolation order is set to 1 (linear) to balance accuracy and speed.
+    • The aligned dose replaces `Dose_data["Volume"]` in place.
     """
     scale_z, scale_y, scale_x = scales
     offset_z, offset_y, offset_x = offsets
@@ -468,17 +624,42 @@ def match_Dose_to_CT(Dose_data, CT_data, scales, offsets):
 
 def preprocess_Dose_to_CT(Dose_data, CT_data):
     """
-    Transforms dose images to align with CT slices dimensions.
+    Resample and align the Dose volume so it matches the CT grid in both
+    dimensions and spatial origin.
 
-    Parameters:
-    Dose_data: dict
-        A dictionary containing dose metadata.
-    CT_data: dict
-        A dictionary containing CT metadata.
+    Parameters
+    ----------
+    Dose_data : dict
+        Dictionary containing the dose volume and metadata, typically from
+        :func:`load_nifti_volume`. Expected keys:
+          • "Volume": 3D numpy array [Z,Y,X] (float32 Gy)
+          • "Spacing": voxel spacing (z,y,x) in mm
+          • "Position": origin coordinates (z,y,x) in mm
+    CT_data : dict
+        Dictionary containing the CT volume and metadata, typically from
+        :func:`load_nifti_volume`. Expected keys:
+          • "Volume": 3D numpy array [Z,Y,X] (float32 HU)
+          • "Spacing": voxel spacing (z,y,x) in mm
+          • "Position": origin coordinates (z,y,x) in mm
 
-    Returns:
+    Returns
+    -------
     dict
-        The updated Dose_data dictionary with transformed images aligned to CT.
+        Updated `Dose_data` dictionary where:
+          • "Volume" has been resampled and aligned to CT grid
+          • "Spacing" is set to CT spacing
+          • "Position" is set to CT origin
+
+    Notes
+    -----
+    • Computes scaling factors by dividing Dose voxel spacing by CT voxel spacing.
+    • Computes voxel offsets by comparing the physical positions of Dose and CT origins.
+    • Calls :func:`match_Dose_to_CT` to apply an affine transformation
+      (scaling + translation) so the Dose matches CT geometry.
+    • The function **modifies Dose_data in place** and also returns it
+      for convenience.
+    • After this step, CT and Dose arrays are guaranteed to have the
+      same shape, spacing, and origin, which is required for DVH computation.
     """
     # Obtain Dose and CT Spacings and Positions to match between them.
     Dose_z_spacing, Dose_y_spacing, Dose_x_spacing = Dose_data["Spacing"]
@@ -506,6 +687,35 @@ def preprocess_Dose_to_CT(Dose_data, CT_data):
     return Dose_data
 
 def voxelize_convex_hull(points_voxel, volume_shape):
+    """
+        Create a 3D binary mask by voxelizing the convex hull of a set of points.
+
+        Parameters
+        ----------
+        points_voxel : (N, 3) array_like
+            Array of 3D points in voxel coordinates [z, y, x].
+            These points define the region of interest to be enclosed.
+        volume_shape : tuple of int (Z, Y, X)
+            Shape of the target 3D volume into which the convex hull will be voxelized.
+
+        Returns
+        -------
+        filled : numpy.ndarray (bool)
+            3D binary mask [Z, Y, X] where voxels inside the convex hull are True,
+            and voxels outside are False.
+
+        Notes
+        -----
+        • The convex hull is computed using `scipy.spatial.ConvexHull`.
+        • A Delaunay triangulation of the hull vertices is built to efficiently
+          test whether each voxel lies inside the convex hull.
+        • All voxel coordinates within the bounding box of `volume_shape`
+          are tested against the Delaunay simplex.
+        • The output mask can be used for rasterizing structures (e.g., ROIs)
+          into voxel space from point-based definitions.
+        • Complexity grows with the number of voxels in `volume_shape`;
+          for large grids this step may be computationally expensive.
+    """
     hull = ConvexHull(points_voxel)
     delaunay = Delaunay(points_voxel[hull.vertices])
     zz, yy, xx = np.meshgrid(
@@ -522,14 +732,43 @@ def voxelize_convex_hull(points_voxel, volume_shape):
 
 def extract_ROIs_data(RS_data, CT_data):
     """
-    Extracts ROIs and fills their 3D volume using convex hull of contour points.
+    Extract 3D ROI masks from an RT Structure Set (RTSTRUCT) DICOM file and
+    voxelize them onto the CT grid.
 
-    Args:
-        RS_data (pydicom Dataset): RT Structure Set (RS) DICOM dataset.
-        CT_data (dict): Dictionary containing CT volume and geometry.
+    Parameters
+    ----------
+    RS_data : pydicom.Dataset
+        RT Structure Set (RS) DICOM dataset containing ROI definitions
+        (StructureSetROISequence and ROIContourSequence).
+    CT_data : dict
+        Dictionary containing the CT volume and geometry, typically from
+        :func:`load_nifti_volume`. Must include:
+          • "Volume": 3D CT array [Z,Y,X]
+          • "Spacing": voxel spacing (z,y,x) in mm
+          • "Position": origin coordinates (z,y,x) in mm
+          • "Slices": mapping from SOPInstanceUID → {"Z Index": int}
 
-    Returns:
-        dict: ROI data with names, colors, and filled 3D binary volumes.
+    Returns
+    -------
+    ROIs_data : dict
+        Dictionary of ROI information with structure:
+          • "ROIs": mapping {roi_number: {"Name", "Color", "Volume"}}
+              - "Name": ROI name from RS (string)
+              - "Color": ROI display color (list of 3 ints [R,G,B] or None)
+              - "Volume": 3D binary mask [Z,Y,X] (bool), True = inside ROI
+        Each ROI volume is voxelized from its DICOM contour data.
+
+    Notes
+    -----
+    • Each ROI contour is defined in patient coordinates (x,y,z). These
+      are converted to voxel indices using CT origin and spacing.
+    • All contour points for an ROI are collected, and a convex hull
+      is computed via :func:`voxelize_convex_hull` to fill the volume.
+    • ROI volumes are stored as **binary masks**:
+        - True (1) → voxel inside ROI
+        - False (0) → voxel outside ROI
+    • Colors are taken from the DICOM `ROIDisplayColor` field if present.
+    • Multiple slices are combined by stacking voxel coordinates before hull fill.
     """
 
     # Extract sequences
@@ -582,19 +821,36 @@ def extract_ROIs_data(RS_data, CT_data):
 
 def extract_dose_data(RD_data):
     """
-    Extracts relevant dose-related information from the RD (Radiotherapy Dose) dataset.
+    Extract dose grid information from a Radiotherapy Dose (RD) DICOM dataset.
 
-    Parameters:
-    RD_data: pydicom Dataset
-        The DICOM dataset containing radiotherapy dose information.
+    Parameters
+    ----------
+    RD_data : pydicom.Dataset
+        The RT Dose DICOM object, typically read with `pydicom.dcmread().
 
-    Returns:
+    Returns
+    -------
     dict
-        A dictionary containing:
-        - "Scaling Factor": The dose grid scaling factor.
-        - "Position": The (x, y, z) position of the dose grid in patient coordinates.
-        - "Spacing": The spacing between voxels in the dose grid (z, y, x) in mm.
-        - "Volume": The 3D dose array in Gy units.
+        Dictionary with the following keys:
+          • "Position": tuple of float (z,y,x)
+              Physical coordinates (mm) of the first voxel in patient space,
+              reordered to match internal [Z,Y,X] convention.
+          • "Spacing": tuple of float (z,y,x)
+              Voxel spacing in mm, derived from PixelSpacing (x,y) and
+              GridFrameOffsetVector (z).
+          • "Volume": numpy.ndarray [Z,Y,X]
+              3D dose array in units of Gray (Gy), scaled by `DoseGridScaling`.
+
+    Notes
+    -----
+    • DICOM stores coordinates as (x,y,z); this function reorders them to (z,y,x)
+      for consistency with the rest of the pipeline.
+    • `PixelSpacing` provides in-plane resolution (y,x) in mm.
+    • `GridFrameOffsetVector` gives slice positions along z; spacing is inferred
+      from consecutive offsets.
+    • The raw pixel array is multiplied by `DoseGridScaling` to convert stored
+      integer values into absolute dose in Gray.
+    • The dataset’s `DoseUnits` attribute is assumed to be GY.
     """
     pos_x, pos_y, pos_z = RD_data.ImagePositionPatient
     spacing_x, spacing_y = RD_data.PixelSpacing
@@ -611,7 +867,33 @@ def extract_dose_data(RD_data):
     }
 
 def read_dicom_rd_file(file_path):
-    """Reads and loads a DICOM Radiation Dose (RD) file."""
+    """
+    Read a DICOM Radiotherapy Dose (RD) file and validate its modality.
+
+    Parameters
+    ----------
+    file_path : str or pathlib.Path
+        Path to the DICOM file to be read.
+
+    Returns
+    -------
+    pydicom.Dataset
+        The loaded DICOM dataset if the file is a valid RT Dose object
+        (Modality == "RTDOSE").
+
+    Raises
+    ------
+    ValueError
+        If the file exists but its `Modality` is not "RTDOSE".
+
+    Notes
+    -----
+    • Uses `pydicom.dcmread()` to parse the file.
+    • The `Modality` attribute is checked to confirm that the file is indeed
+      a Radiotherapy Dose (RD) object.
+    • This function only validates file type; dose grid extraction should be
+      done separately (e.g., with :func:`extract_dose_data`).
+    """
     rd = pydicom.dcmread(file_path)
     if rd.Modality == 'RTDOSE':
         return rd
@@ -619,7 +901,33 @@ def read_dicom_rd_file(file_path):
         raise ValueError("The provided file is not a Radiation Dose (RD) DICOM file.")
 
 def read_dicom_rs_file(file_path):
-    """Reads and loads a DICOM Radiation Therapy (RT) Structure Set (RS) file."""
+    """
+    Read a DICOM Radiotherapy Structure Set (RS) file and validate its modality.
+
+    Parameters
+    ----------
+    file_path : str or pathlib.Path
+        Path to the DICOM file to be read.
+
+    Returns
+    -------
+    pydicom.Dataset
+        The loaded DICOM dataset if the file is a valid RT Structure Set
+        (Modality == "RTSTRUCT").
+
+    Raises
+    ------
+    ValueError
+        If the file exists but its `Modality` is not "RTSTRUCT".
+
+    Notes
+    -----
+    • Uses `pydicom.dcmread()` to parse the file.
+    • The `Modality` attribute is checked to confirm that the file is indeed
+      a Radiotherapy Structure Set (RS).
+    • This function only validates and loads the dataset. To extract ROI volumes
+      and metadata from the RS file, use :func:`extract_ROIs_data`.
+    """
     rs = pydicom.dcmread(file_path)
     if rs.Modality == 'RTSTRUCT':
         return rs
@@ -628,7 +936,33 @@ def read_dicom_rs_file(file_path):
 
 
 def read_dicom_rp_file(file_path):
-    """Reads and loads a DICOM Radiation Therapy Plan (RP) file."""
+    """
+        Read a DICOM Radiotherapy Plan (RP) file and validate its modality.
+
+        Parameters
+        ----------
+        file_path : str or pathlib.Path
+            Path to the DICOM file to be read.
+
+        Returns
+        -------
+        pydicom.Dataset
+            The loaded DICOM dataset if the file is a valid RT Plan
+            (Modality == "RTPLAN").
+
+        Raises
+        ------
+        ValueError
+            If the file exists but its `Modality` is not "RTPLAN".
+
+        Notes
+        -----
+        • Uses `pydicom.dcmread()` to parse the file.
+        • The `Modality` attribute is checked to confirm that the file is indeed
+          a Radiotherapy Plan (RP).
+        • This function only validates and loads the dataset. Downstream processing
+          of beams, fractions, or prescriptions should be implemented separately.
+    """
     rp = pydicom.dcmread(file_path)
     if rp.Modality == 'RTPLAN':
         return rp
@@ -637,30 +971,46 @@ def read_dicom_rp_file(file_path):
 
 def load_RT_data(files_path):
     """
-    Load DICOM Radiation Therapy (RT) data from a given directory.
+    Load core DICOM Radiotherapy (RT) datasets from a directory.
 
-    This function loads three types of DICOM RT files:
-    - RD (Radiation Dose) file: Contains radiation dose distribution data.
-    - RS (Radiation Structure) file: Contains structure set data, defining target volumes and organs-at-risk.
-    - RP (Radiation Plan) file: Contains treatment plan information.
+    This function searches for and loads three essential RT DICOM files:
+      • RD (Radiotherapy Dose)   – 3D dose distribution grid.
+      • RS (RT Structure Set)    – Contours defining target volumes (PTVs, CTVs)
+                                    and organs-at-risk (OARs).
+      • RP (RT Plan)             – Treatment plan including beams, fractions,
+                                    and prescriptions.
 
-    Parameters:
+    Parameters
     ----------
-    files_path : str
-        The path to the directory containing the DICOM RT files.
+    files_path : str or pathlib.Path
+        Path to the directory containing the DICOM RT files.
 
-    Returns:
+    Returns
     -------
     tuple
-        A tuple containing three elements:
-        - RD_data: Radiation dose data extracted from the RD file.
-        - RS_data: Radiation structure data extracted from the RS file.
-        - RP_data: Radiation plan data extracted from the RP file.
+        (RD_data, RS_data, RP_data), where each element is a pydicom.Dataset:
+          • RD_data : DICOM dataset of type "RTDOSE"
+          • RS_data : DICOM dataset of type "RTSTRUCT"
+          • RP_data : DICOM dataset of type "RTPLAN"
 
-    Raises:
+    Raises
     ------
-    FileNotFoundError:
+    FileNotFoundError
         If any of the required files (RD, RS, RP) are not found in the directory.
+
+    Notes
+    -----
+    • Internally uses `find_file_with_prefix` to locate files by DICOM prefix.
+    • Each dataset is validated for its `Modality` using the respective reader:
+        - :func:`read_dicom_rd_file`
+        - :func:`read_dicom_rs_file`
+        - :func:`read_dicom_rp_file`
+    • Only one file of each type is expected in the directory. If multiple are
+      present, the first match will be used.
+    • After loading, the datasets should be passed to higher-level extractors:
+        - :func:`extract_dose_data` for RD
+        - :func:`extract_ROIs_data` for RS
+        - custom RP parsing for plan details
     """
 
     # Load RD data
@@ -684,6 +1034,34 @@ def load_RT_data(files_path):
     return RD_data, RS_data, RP_data
 
 def create_CT_volume(CT_data):
+    """
+        Construct a 3D CT volume from individual CT slices.
+
+        Parameters
+        ----------
+        CT_data : dict
+            Dictionary containing CT slice information. Must include:
+              • "Slices": dict mapping slice identifiers → {
+                    "Image": 2D numpy array (pixels),
+                    "Position": tuple (z,y,x) position of slice origin in mm
+                }
+
+        Returns
+        -------
+        CT_volume : numpy.ndarray
+            3D numpy array [Z,Y,X] representing the reconstructed CT volume,
+            where Z corresponds to slice index.
+
+        Notes
+        -----
+        • CT slices are sorted along the z-axis using their spatial position
+          (from `Position[0]` in mm).
+        • The function assigns a `"Z Index"` field to each slice in `CT_data["Slices"]`,
+          indicating its slice index in the final 3D volume.
+        • The output volume is assembled by stacking 2D images in slice order,
+          producing a float32 array.
+        • All slices are assumed to have the same in-plane dimensions (Y,X).
+        """
     # 1. Sort CT slices
     CT_slices_data = [(slice_number, CT_data['Slices'][slice_number]["Position"][0]) for slice_number in
                       CT_data['Slices']]
@@ -704,18 +1082,37 @@ def create_CT_volume(CT_data):
 
 def load_CT_data(files_path):
     """
-    Loads CT image data from DICOM files in a specified directory.
+    Load CT image series from DICOM files in a directory and assemble them into a 3D volume.
 
-    Parameters:
-    files_path: str
-        The directory path containing CT DICOM files.
+    Parameters
+    ----------
+    files_path : str or pathlib.Path
+        Path to the directory containing CT DICOM slices (files with "CT" prefix).
 
-    Returns:
-    dict
-        A dictionary where each key is a CT slice identifier (SOPInstanceUID), and values are dictionaries containing:
-        - "Position": The (x, y, z) position of the slice.
-        - "Spacing": The pixel spacing values.
-        - "Image": The pixel array representing the CT image.
+    Returns
+    -------
+    CT_data : dict
+        Dictionary containing CT geometry and voxel data:
+          • "Slices": dict mapping {SOPInstanceUID → {
+                "Position": tuple (z,y,x) in mm, slice origin in patient space,
+                "Spacing": tuple (y,x) pixel spacing in mm,
+                "Image": 2D numpy array of the CT slice
+            }}
+          • "Position": tuple (z,y,x) position of the lowest-z slice (mm).
+          • "Spacing": tuple (z,y,x) voxel spacing in mm.
+              - z-spacing is computed as the mean difference between consecutive slice positions.
+              - (y,x) spacing is taken from DICOM `PixelSpacing`.
+          • "Volume": 3D numpy array [Z,Y,X], float32 CT voxel values (HU).
+
+    Notes
+    -----
+    • Slice identifiers are taken from DICOM `SOPInstanceUID`.
+    • Slice positions are reordered to (z,y,x) to match internal convention.
+    • Pixel spacing is reordered to (y,x). Combined with z-spacing, this yields full (z,y,x) spacing.
+    • The final 3D CT volume is assembled using :func:`create_CT_volume`, which sorts slices
+      along the z-axis and stacks them into [Z,Y,X].
+    • CT values are stored as raw DICOM pixel values; HU scaling (RescaleSlope/Intercept)
+      should be applied beforehand if needed.
     """
 
     CT_data = {}
@@ -757,6 +1154,57 @@ def load_CT_data(files_path):
     return CT_data
 
 class PreprocessWorker(QThread):
+    """
+        Background worker for preprocessing radiotherapy patient data.
+
+        This worker is intended to be run inside a PyQt application. It loads DICOM
+        CT, dose, and structure data for a single patient, optionally resamples them
+        to a new voxel grid, aligns dose and ROIs to the CT, and saves standardized
+        NIfTI outputs.
+
+        Signals
+        -------
+        finished : pyqtSignal(dict)
+            Emitted when processing ends. Dictionary includes:
+              • "ok": bool – True if successful, False if error
+              • "msg": str – status or error message
+              • "out_dir": str – output directory path ("" if failed)
+        log : pyqtSignal(str)
+            Emitted with progress messages for logging to the GUI.
+
+        Parameters
+        ----------
+        patient_data : str or pathlib.Path
+            Path to directory containing the patient’s DICOM files.
+        patient_output_dir : str or pathlib.Path
+            Directory where preprocessed NIfTI outputs will be saved.
+        resample_type : str
+            Resampling mode:
+              • "shape" – resample CT to match `new_size`
+              • otherwise – resample CT to match `new_spacing`
+        new_size : tuple of int, optional
+            Desired (Z,Y,X) shape for CT resampling (used if resample_type="shape").
+        new_spacing : tuple of float, optional
+            Desired voxel spacing (z,y,x) in mm (used if resample_type="spacing").
+
+        Workflow
+        --------
+        1. Check if outputs already exist → skip if present.
+        2. Load DICOM CT, RT Dose, and RT Structure Set.
+        3. Extract Dose and ROI masks.
+        4. Compute resampling zoom factors (from `new_size` or `new_spacing`).
+        5. Resample CT, ROIs (nearest-neighbor), and align Dose to CT.
+        6. Save CT, Dose, and ROI volumes as NIfTI (.nii.gz) with metadata.
+        7. Emit `finished` signal with results or error message.
+
+        Notes
+        -----
+        • CT resampling uses linear interpolation (order=1).
+        • ROI masks use nearest-neighbor interpolation (order=0) to preserve labels.
+        • Dose is aligned to CT grid using :func:`preprocess_Dose_to_CT`.
+        • Outputs are saved in NIfTI format via :func:`save_volumes`.
+        • Errors are caught and emitted in the `finished` signal with traceback.
+        """
     finished = pyqtSignal(dict)  # {ok: bool, msg: str, out_dir: str}
     log = pyqtSignal(str)
 
@@ -849,6 +1297,40 @@ class PreprocessWorker(QThread):
             })
 
 class PandasModel(QAbstractTableModel):
+    """
+        Qt table model wrapper for a pandas DataFrame.
+
+        This model allows a pandas DataFrame to be displayed in Qt views
+        such as QTableView, with support for formatted display values
+        and custom headers.
+
+        Parameters
+        ----------
+        df : pandas.DataFrame
+            The DataFrame to be displayed. A copy is stored internally.
+        parent : QObject, optional
+            Optional Qt parent object.
+
+        Methods
+        -------
+        rowCount(parent=None)
+            Returns the number of rows in the DataFrame.
+        columnCount(parent=None)
+            Returns the number of columns in the DataFrame.
+        data(idx, role=Qt.DisplayRole)
+            Returns the display value for a given cell, formatted as string.
+            Floats are formatted with two decimals; NaN values are shown as empty.
+        headerData(sec, ori, role=Qt.DisplayRole)
+            Returns column headers (Horizontal) or index labels (Vertical).
+
+        Notes
+        -----
+        • Implements a minimal QAbstractTableModel for read-only display.
+        • Only DisplayRole and ToolTipRole are supported for cell data.
+        • Floats are rendered with 2 decimal places, other types use str().
+        • NaN values are displayed as empty strings.
+        • Column headers come from `df.columns`; row headers from `df.index`.
+        """
     def __init__(self, df: pd.DataFrame, parent=None):
         super().__init__(parent)
         self._df = df.copy()
@@ -870,14 +1352,41 @@ class PandasModel(QAbstractTableModel):
         if role != Qt.DisplayRole: return None
         return str(self._df.columns[sec]) if ori == Qt.Horizontal else str(self._df.index[sec])
 
-def _dvh_cumsum_weighted(dose_values: np.ndarray,
-                         weights: np.ndarray,
-                         voxel_vol_cc: float,
-                         step_gy: float = 0.1,
-                         max_dose: Optional[float] = None) -> Tuple[np.ndarray, np.ndarray]:
+def _dvh_cumsum_weighted(dose_values: np.ndarray, weights: np.ndarray, voxel_vol_cc: float, step_gy: float = 0.1, max_dose: Optional[float] = None) -> Tuple[np.ndarray, np.ndarray]:
     """
-    Weighted differential histogram (Gy) → cumulative volume (cc) DVH.
-    Returns (dose_bins_left_edges, cumulative_volumes_cc).
+    Compute a weighted cumulative Dose-Volume Histogram (DVH).
+
+    Parameters
+    ----------
+    dose_values : np.ndarray
+        1D array of dose values (Gy) for all voxels of interest.
+    weights : np.ndarray
+        1D array of per-voxel weights (e.g., mask values or ROI fractions),
+        same shape as `dose_values`.
+    voxel_vol_cc : float
+        Volume of a single voxel in cubic centimeters (cc).
+    step_gy : float, optional
+        Bin width in Gy for histogramming (default = 0.1 Gy).
+    max_dose : float, optional
+        Maximum dose value to consider (Gy). If None, the maximum from
+        `dose_values` is used.
+
+    Returns
+    -------
+    bins : np.ndarray
+        Left edges of dose bins (Gy), shape [N].
+    cumvol : np.ndarray
+        Cumulative volume (cc) corresponding to each bin, shape [N].
+        Decreases monotonically with dose.
+
+    Notes
+    -----
+    • Computes a weighted histogram of dose values, scaling by voxel volume (cc).
+    • The cumulative sum is taken from high dose → low dose so that `cumvol[i]`
+      represents the total volume receiving at least `bins[i]` Gy.
+    • If `weights` is binary (0/1), the result is a standard DVH for the ROI.
+    • Non-binary weights allow for partial-volume or probabilistic ROIs.
+    • Returned arrays are float32 for memory efficiency.
     """
     if dose_values.size == 0:
         return np.empty(0, dtype=np.float32), np.empty(0, dtype=np.float32)
@@ -891,16 +1400,47 @@ def _dvh_cumsum_weighted(dose_values: np.ndarray,
     cumvol = np.cumsum(vol_hist[::-1])[::-1]
     return bins[:-1], cumvol.astype(np.float32)
 
-def dvh_table_abs(dose_values: np.ndarray,
-                  weights: np.ndarray,
-                  voxel_vol_cc: float,
-                  step_gy: float = 0.1,
-                  prescription: Optional[float] = None,
-                  max_dose: Optional[float] = None) -> pd.DataFrame:
+def dvh_table_abs(dose_values: np.ndarray, weights: np.ndarray, voxel_vol_cc: float, step_gy: float = 0.1, prescription: Optional[float] = None, max_dose: Optional[float] = None) -> pd.DataFrame:
     """
-    Build an absolute DVH DataFrame with columns:
-      - Dose [Gy], Rel. Dose [%], Volume [cm³]
-    Rel. dose is % of prescription if available; otherwise % of max curve dose.
+    Build an absolute Dose-Volume Histogram (DVH) as a pandas DataFrame.
+
+    Parameters
+    ----------
+    dose_values : np.ndarray
+        1D array of dose values (Gy) for all voxels of interest.
+    weights : np.ndarray
+        1D array of per-voxel weights (e.g., ROI mask values).
+        Must have the same shape as `dose_values`.
+    voxel_vol_cc : float
+        Volume of a single voxel in cubic centimeters (cc).
+    step_gy : float, optional
+        Dose bin width in Gy (default = 0.1 Gy).
+    prescription : float, optional
+        Prescription dose in Gy. If provided, relative dose is expressed
+        as a percentage of this value. If None, the maximum dose from
+        the curve is used as the reference.
+    max_dose : float, optional
+        Maximum dose value (Gy) to include in the DVH. If None, uses the
+        maximum in `dose_values`.
+
+    Returns
+    -------
+    dvh_df : pandas.DataFrame
+        DataFrame with the following columns:
+          • "Dose [Gy]"      – Dose bin edges (float32)
+          • "Rel. Dose [%]"  – Dose as % of prescription (or max dose)
+          • "Volume [cm³]"   – Absolute cumulative volume in cc
+
+    Notes
+    -----
+    • Internally calls :func:`_dvh_cumsum_weighted` to compute cumulative
+      volume curves.
+    • Relative dose normalization:
+        - If `prescription` is provided → relative dose = 100 × dose / prescription.
+        - Else → relative dose = 100 × dose / max_curve_dose.
+    • Volume is cumulative: "Volume [cm³]" at dose d represents the volume
+      receiving at least d Gy.
+    • If `dose_values` is empty, an empty DataFrame with headers is returned.
     """
     d, v = _dvh_cumsum_weighted(dose_values, weights, voxel_vol_cc, step_gy, max_dose=max_dose)
     if d.size == 0:
@@ -915,14 +1455,42 @@ def dvh_table_abs(dose_values: np.ndarray,
         "Volume [cm³]": v.astype(np.float32),
     })
 
-def compute_abs_dvhs(masks,
-                     dose_arr,
-                     voxel_vol_cc,
-                     prescription,
-                     spacing_mm,
-                     log):
+def compute_abs_dvhs(masks, dose_arr, voxel_vol_cc, prescription, spacing_mm, log):
     """
-    Compute absolute DVH tables (0.1 Gy bins) per ROI.
+    Compute absolute DVH tables (0.1 Gy bins) for multiple ROIs.
+
+    Parameters
+    ----------
+    masks : dict[str, np.ndarray]
+        Mapping from ROI name → 3D binary mask [Z,Y,X].
+        Each mask should be boolean or integer (1 inside ROI, 0 outside).
+    dose_arr : np.ndarray
+        3D dose distribution array [Z,Y,X] in Gy, aligned to the masks.
+    voxel_vol_cc : float
+        Volume of a single voxel in cubic centimeters (cc).
+    prescription : float
+        Prescription dose in Gy. Used to normalize relative dose in DVH tables.
+    spacing_mm : tuple[float, float, float]
+        Voxel spacing (z,y,x) in millimeters. Passed to dose sampling.
+    log : pyqtSignal or callable
+        Logging function/signal used to emit progress updates.
+
+    Returns
+    -------
+    dvh_abs : dict[str, pandas.DataFrame]
+        Mapping from ROI name → DVH DataFrame with columns:
+          • "Dose [Gy]"      – Dose bin edges (float32, 0.1 Gy bins)
+          • "Rel. Dose [%]"  – Dose as % of prescription
+          • "Volume [cm³]"   – Absolute cumulative volume in cc
+
+    Notes
+    -----
+    • Internally calls :func:`_sample_native_dose` to extract per-voxel dose
+      values within each ROI mask.
+    • Uses :func:`dvh_table_abs` to build per-ROI DVH tables.
+    • Bins are fixed at 0.1 Gy increments from 0 to global maximum dose.
+    • The cumulative DVH volume decreases monotonically with dose.
+    • A log message is emitted for each ROI upon completion.
     """
     dvh_abs: Dict[str, pd.DataFrame] = {}
     global_max = float(dose_arr.max()) if dose_arr.size else 0.0
@@ -937,14 +1505,50 @@ def compute_abs_dvhs(masks,
 
 def extract_group1_metadata(RP_data, RD_data, patient_folder_path) -> Dict[str, Any]:
     """
-    Return a dict with the nine “Group‑1” plan‑level metadata items:
+    Extract “Group-1” plan-level metadata from RT Plan (RP), RT Dose (RD),
+    and the patient’s folder name.
 
-        PatientID │ Session date │ PrescriptionDose[Gy] │ NumberofFractions
-        DoseperFraction[Gy] │ PlanningSoftware │ PlanningTechnique
-        DoseCalculation Algorithm │ DoseGridSize[mm]  (z,y,x)
+    The function is designed to be robust against missing DICOM tags and
+    non-standard planners: unavailable values are returned as None or
+    'Unknown…'.
 
-    *The function is resilient to missing DICOM tags and non‑standard planners –
-    any unavailable item is returned as None / 'Unknown…'.*
+    Parameters
+    ----------
+    RP_data : pydicom.Dataset
+        DICOM Radiotherapy Plan (RTPLAN) dataset.
+    RD_data : pydicom.Dataset
+        DICOM Radiotherapy Dose (RTDOSE) dataset.
+    patient_folder_path : str or pathlib.Path
+        Path to the patient’s folder; folder name is parsed for patient ID
+        and session date.
+
+    Returns
+    -------
+    meta : dict[str, Any]
+        Dictionary with nine standardized plan-level metadata fields:
+
+          • "Patient ID"                – ID parsed from folder name prefix
+          • "Session Date"              – Parsed from folder name (DD/MM/YYYY if possible)
+          • "Prescription Dose [Gy]"    – Total prescribed dose
+          • "Number of Fractions"       – Planned number of fractions
+          • "Dose per Fraction [Gy]"    – Prescription ÷ number of fractions
+          • "Planning Software"         – Planner software version string
+          • "Planning Technique"        – Beam technique (e.g. IMRT, VMAT)
+          • "Dose Calculation Algorithm"– Algorithm used for dose calc.
+          • "Dose Grid Size [mm]"       – Grid spacing (z,y,x) in mm
+
+    Notes
+    -----
+    • Patient ID is parsed as the substring before the first “_” in the folder name.
+    • Session date is inferred from any 8-digit block in the folder name;
+      common formats (%d%m%Y, %Y%m%d) are recognized, otherwise raw digits are returned.
+    • Prescription dose is extracted via `_get_prescription(RP_data)`.
+    • Number of fractions is taken from `FractionGroupSequence[0].NumberOfFractionsPlanned`.
+    • Dose per fraction is derived only if both total dose and fraction count are present.
+    • Planning technique and algorithm are taken from the first entry in `BeamSequence`.
+    • Dose grid size is extracted from `RD_data.PixelSpacing` and
+      `GridFrameOffsetVector` (z spacing); falls back to `SliceThickness` if needed.
+    • All missing values are returned as None (or 'Unknown…' for IDs/dates).
     """
     meta: Dict[str, Any] = {
         "Patient ID":               "UnknownID",
@@ -1017,14 +1621,71 @@ def extract_group1_metadata(RP_data, RD_data, patient_folder_path) -> Dict[str, 
     return meta
 
 def _weighted_percentile(values: np.ndarray, weights: np.ndarray, q: float) -> float:
-    """Weighted percentile (linear interpolation on the CDF)."""
+    """
+    Compute the weighted percentile of a set of values.
+
+    Parameters
+    ----------
+    values : np.ndarray
+        1D array of numeric values (e.g., dose values).
+    weights : np.ndarray
+        1D array of non-negative weights, same shape as `values`.
+        Defines the contribution of each value to the percentile.
+    q : float
+        Percentile to compute, in the range [0, 100].
+
+    Returns
+    -------
+    float
+        Weighted q-th percentile of the input values.
+
+    Notes
+    -----
+    • The method sorts `values`, builds the cumulative distribution function (CDF)
+      weighted by `weights`, and performs linear interpolation.
+    • If all weights are equal, result is identical to the standard percentile.
+    • If `weights` contain zeros, those entries are effectively ignored.
+    • Implementation uses `numpy.interp` for interpolation on the weighted CDF.
+    """
     sorter = np.argsort(values)
     v, w = values[sorter], weights[sorter]
     cdf = np.cumsum(w) / np.sum(w)
     return float(np.interp(q / 100.0, cdf, v))
 
 def _weighted_mode(values: np.ndarray, weights: np.ndarray, bin_width: float = 0.1) -> float:
-    """Weighted mode via histogram with guards for narrow/degenerate ranges."""
+    """
+    Compute the weighted mode of a distribution using a histogram.
+
+    Parameters
+    ----------
+    values : np.ndarray
+        1D array of numeric values.
+    weights : np.ndarray
+        1D array of non-negative weights, same shape as `values`.
+        Defines the contribution of each value to the mode estimate.
+    bin_width : float, optional
+        Width of histogram bins (default = 0.1). Smaller bin widths yield
+        more precise but potentially noisier results.
+
+    Returns
+    -------
+    float
+        Weighted mode estimate. If the input is empty, returns NaN.
+        If all values are nearly identical, returns that value.
+
+    Notes
+    -----
+    • The mode is estimated as the center of the histogram bin with
+      the maximum weighted count.
+    • Special cases are handled:
+        - Empty input → returns NaN.
+        - Degenerate distribution (all values equal or nearly so) →
+          returns that constant value.
+        - Very narrow ranges (< `bin_width`) → single bin used.
+    • If no bin has weight > 0, falls back to the weighted average.
+    • Result depends on the choice of `bin_width`; using a smaller
+      bin may better capture fine-grained peaks.
+    """
     if values.size == 0:
         return float("nan")
     if np.allclose(values.ptp(), 0):
@@ -1040,13 +1701,42 @@ def _weighted_mode(values: np.ndarray, weights: np.ndarray, bin_width: float = 0
     idx = int(np.argmax(hist))
     return float((edges[idx] + edges[idx + 1]) / 2.0)
 
-def _sample_native_dose(mask: np.ndarray,
-                        spacing_mm: Tuple[float, float, float],
-                        dose: np.ndarray,
-                        smooth_sigma: float = SMOOTH_SIGMA_MM) -> Tuple[np.ndarray, np.ndarray]:
+def _sample_native_dose(mask: np.ndarray, spacing_mm: Tuple[float, float, float], dose: np.ndarray, smooth_sigma: float = SMOOTH_SIGMA_MM) -> Tuple[np.ndarray, np.ndarray]:
     """
-    Return dose values and smoothed occupancy weights inside the binary `mask`.
-    The smoothing produces fractional weights at edges (sub‑voxel interpolation).
+    Extract per-voxel dose values and fractional occupancy weights
+    inside a binary ROI mask.
+
+    Parameters
+    ----------
+    mask : np.ndarray
+        3D binary array [Z,Y,X], True (1) inside the ROI, False (0) outside.
+    spacing_mm : tuple[float, float, float]
+        Physical voxel spacing (z,y,x) in millimeters. Used to convert
+        the smoothing kernel from mm to voxel units.
+    dose : np.ndarray
+        3D dose distribution [Z,Y,X] in Gy. Must have the same shape as `mask`.
+    smooth_sigma : float, optional
+        Gaussian smoothing kernel in millimeters (default = SMOOTH_SIGMA_MM).
+        Smoothing softens mask edges and assigns partial (fractional) weights
+        to voxels on ROI boundaries. If set to 0, no smoothing is applied.
+
+    Returns
+    -------
+    dose_values : np.ndarray
+        1D array of dose values (Gy) for voxels inside the mask.
+    weights : np.ndarray
+        1D array of occupancy weights corresponding to `dose_values`.
+        Values are 1.0 for fully inside voxels, fractional [0,1] for
+        edge voxels (if smoothing applied).
+
+    Notes
+    -----
+    • The mask and dose arrays must have identical shapes.
+    • Smoothing is applied in voxel units:
+        sigma_vox = (σ/Δx, σ/Δy, σ/Δz), where σ = smooth_sigma (mm).
+    • This fractional-weight sampling approximates sub-voxel interpolation
+      and reduces aliasing in DVH calculations.
+    • When `smooth_sigma=0`, weights are exactly binary (1 inside, 0 outside).
     """
     if mask.shape != dose.shape:
         raise ValueError(f"Mask shape {mask.shape} must match dose shape {dose.shape}")
@@ -1059,15 +1749,64 @@ def _sample_native_dose(mask: np.ndarray,
     inside = mask.astype(bool)
     return dose[inside], weight_mask[inside]
 
-def compute_roi_metrics(masks: Dict[str, np.ndarray],
-                        dose_arr: np.ndarray,
-                        voxel_vol_cc: float,
-                        prescription: Optional[float],
-                        spacing_mm: Tuple[float, float, float],
-                        smooth_sigma: float,
-                        log) -> pd.DataFrame:
+def compute_roi_metrics(masks: Dict[str, np.ndarray], dose_arr: np.ndarray, voxel_vol_cc: float, prescription: Optional[float], spacing_mm: Tuple[float, float, float], smooth_sigma: float, log) -> pd.DataFrame:
     """
-    Compute per‑ROI dose/volume metrics and selected Vx (cc) for healthy brain.
+    Compute per-ROI dose–volume statistics and plan quality metrics.
+
+    Parameters
+    ----------
+    masks : dict[str, np.ndarray]
+        Mapping from ROI name → 3D binary mask [Z,Y,X].
+        Each mask should be boolean or integer (1 inside ROI, 0 outside).
+    dose_arr : np.ndarray
+        3D dose distribution [Z,Y,X] in Gy, aligned with the masks.
+    voxel_vol_cc : float
+        Volume of a single voxel in cubic centimeters (cc).
+    prescription : float, optional
+        Prescription dose in Gy. Used for conformity index (CI) and
+        homogeneity index (HI) calculations. If None, CI/HI = NaN.
+    spacing_mm : tuple[float, float, float]
+        Voxel spacing (z,y,x) in millimeters. Used for smoothing conversion.
+    smooth_sigma : float
+        Gaussian smoothing kernel (in mm) applied to ROI masks before
+        sampling dose. Produces fractional weights at edges.
+    log : pyqtSignal or callable
+        Logging function/signal used to emit progress updates.
+
+    Returns
+    -------
+    pd.DataFrame
+        Table of per-ROI metrics. Each row corresponds to one ROI and
+        includes the following columns:
+
+          • ROI            – ROI name
+          • Volume_cc      – ROI volume (cc)
+          • Min_Gy, Max_Gy – Minimum / maximum dose within ROI
+          • Mean_Gy        – Weighted mean dose (Gy)
+          • Median_Gy      – Weighted 50th percentile (Gy)
+          • Mode_Gy        – Weighted mode (Gy, histogram-based)
+          • Std_Gy         – Weighted dose standard deviation (Gy)
+          • D2_Gy          – Dose received by 2% of ROI (≈ near-max dose)
+          • D50_Gy         – Median dose (Gy)
+          • D98_Gy         – Dose received by 98% of ROI (≈ near-min dose)
+          • HI             – Homogeneity index = (D98 - D2) / prescription
+          • CI             – Conformity index (for PTVs only):
+                               (V_PTV,100%)² / (V_PTV,80% × ROI volume)
+
+        For healthy brain ROIs (name contains “brain” but not “brainstem”),
+        additional columns are included:
+          • V5_cc, V10_cc, V12_cc, V18_cc, V20_cc, V23_cc, V24_cc,
+            V25_cc, V27_cc, V30_cc
+          representing absolute ROI volume (cc) receiving ≥ threshold Gy.
+
+    Notes
+    -----
+    • Uses :func:`_sample_native_dose` for sub-voxel weighted sampling of dose.
+    • Percentiles are computed via :func:`_weighted_percentile`.
+    • Mode is estimated via :func:`_weighted_mode`.
+    • CI is only computed for ROIs with "ptv" in their name (case-insensitive).
+    • Healthy brain Vx metrics are hard-coded at clinically relevant thresholds.
+    • Logging emits a message for each ROI when metrics are complete.
     """
     rows = []
     hb_thrs = [5, 10, 12, 18, 20, 23, 24, 25, 27, 30]
@@ -1127,8 +1866,50 @@ def compute_roi_metrics(masks: Dict[str, np.ndarray],
 
 def _get_prescription(rtplan: pydicom.dataset.FileDataset) -> Optional[float]:
     """
-    Heuristically extract prescription dose (Gy) from RTPLAN.
-    Returns None if not found.
+    Heuristically extract the prescription dose (in Gy) from an RT Plan DICOM.
+
+    The DICOM RTPLAN standard does not enforce a single tag for prescription
+    dose. Different TPS vendors store it under different attributes or derive
+    it indirectly. This helper searches through the most common locations.
+
+    Parameters
+    ----------
+    rtplan : pydicom.dataset.FileDataset
+        The RTPLAN DICOM dataset.
+
+    Returns
+    -------
+    float or None
+        The prescription dose in Gray (Gy) if found, otherwise None.
+
+    Heuristic Search Order
+    ----------------------
+    1. **DoseReferenceSequence (TARGET entries)**
+       Looks for fields such as:
+         - `TargetPrescriptionDose`
+         - `DeliveryMaximumDose`
+         - `DeliveryWarningDose`
+         - `DeliveryUnit`
+       The first valid positive value is returned.
+
+    2. **Top-level attributes**
+       Attempts to read:
+         - `DoseReferenceTreatmentMaxDose`
+         - `PrescriptionDescription` (if numeric)
+
+    3. **Beam-sequence derived estimate**
+       Computes prescription ≈ (#fractions × dose_per_fraction), using:
+         - `NumberOfFractionsPlanned`
+         - `FinalCumulativeMetersetWeight`
+       Returns the median across beams if available.
+
+    Notes
+    -----
+    • Values are rounded to the nearest whole number when obtained from
+      `DoseReferenceSequence`.
+    • Some vendors (e.g., Varian, Elekta, RayStation) use different fields;
+      this heuristic covers the most common.
+    • If no valid positive value is found, returns None.
     """
     # 1) DoseReferenceSequence (TARGET)
     try:
@@ -1171,15 +1952,46 @@ def _get_prescription(rtplan: pydicom.dataset.FileDataset) -> Optional[float]:
 
     return None
 
-def build_roi_masks(rs: pydicom.dataset.FileDataset,
-                    ct_img: sitk.Image,  log,
-                    verbose: bool = True) -> Dict[str, np.ndarray]:
+def build_roi_masks(rs: pydicom.dataset.FileDataset, ct_img: sitk.Image,  log, verbose: bool = True) -> Dict[str, np.ndarray]:
     """
-    Rasterize 2D polygon contours from RTSTRUCT onto the CT grid.
-    Returns dict: {roi_name -> mask[Z,Y,X] (uint8 in {0,1})}.
-    Notes:
-      - For each polyline we project to the nearest CT slice using the median Z‑index.
-      - This ignores any cross‑slice interpolation; typical for planar slice contours.
+    Convert RTSTRUCT polygon contours into binary ROI masks aligned to a CT grid.
+
+    Parameters
+    ----------
+    rs : pydicom.dataset.FileDataset
+        RT Structure Set (RS) DICOM dataset containing ROI definitions and
+        contour sequences.
+    ct_img : sitk.Image
+        Reference CT image (SimpleITK) providing the target voxel grid and
+        patient-to-voxel coordinate transform.
+    log : pyqtSignal or callable
+        Logger for progress updates.
+    verbose : bool, optional
+        If True (default), warnings are printed for missing/invalid ROIs.
+
+    Returns
+    -------
+    dict[str, np.ndarray]
+        Dictionary mapping ROI name → binary mask with shape [Z,Y,X].
+        Each mask is uint8 with values:
+          - 1 inside the ROI
+          - 0 outside the ROI
+
+    Notes
+    -----
+    • Each RTSTRUCT polygon is rasterized slice-by-slice.
+    • ROI contours are projected onto the nearest CT slice using the **median Z index**
+      of the contour points. This is the common convention for planar RTSTRUCT data.
+    • No cross-slice interpolation is performed — polygons are drawn only on their
+      corresponding CT slices.
+    • Contours that lie completely outside the CT grid are skipped.
+    • Empty or missing contours produce no mask for that ROI.
+
+    Logging
+    -------
+    • A progress message is emitted for each ROI successfully processed.
+    • If `verbose=True`, warnings are printed for ROIs with no contours or with
+      contours outside the CT volume.
     """
     size_x, size_y, size_z = ct_img.GetSize()     # (X, Y, Z) voxel counts
     masks: Dict[str, np.ndarray] = {}
@@ -1226,19 +2038,73 @@ def build_roi_masks(rs: pydicom.dataset.FileDataset,
     return masks
 
 def find_file_with_prefix(folder_path, prefix):
-    """Finds a file in the given folder with the specified prefix."""
+    """
+    Search for the first file in a folder whose name starts with a given prefix.
+
+    Parameters
+    ----------
+    folder_path : str
+        Path to the directory where the search should be performed.
+    prefix : str
+        Filename prefix to match (case-sensitive).
+
+    Returns
+    -------
+    str or None
+        The absolute path to the first matching file if found,
+        otherwise None.
+
+    Notes
+    -----
+    • Only the first match is returned; if multiple files share the prefix,
+      later ones are ignored.
+    • The match is **prefix-only** (e.g., prefix="CT" will match
+      "CT123.dcm" and "CT_volume.nii.gz").
+    • Matching is case-sensitive; "CT" will not match "ct001.dcm".
+    • Useful for locating RT DICOM files (e.g., "RD", "RS", "RP") inside
+      patient study directories.
+    """
     for file_name in os.listdir(folder_path):
         if file_name.startswith(prefix):
             return os.path.join(folder_path, file_name)
     return None
 
-def resample_dose_to_ct(dose_ds: pydicom.dataset.FileDataset,
-                        dose_arr: np.ndarray,
-                        ct_img: sitk.Image) -> np.ndarray:
+def resample_dose_to_ct(dose_ds: pydicom.dataset.FileDataset, dose_arr: np.ndarray, ct_img: sitk.Image) -> np.ndarray:
     """
-    Wrap the raw dose array in a SimpleITK image with correct spacing/origin,
-    then resample onto the CT grid with linear interpolation.
-    Returns dose_on_ct as array[Z,Y,X] in Gy.
+    Resample a DICOM RTDOSE array onto the CT voxel grid.
+
+    The dose array is first wrapped into a SimpleITK image with correct
+    spacing and origin based on RTDOSE metadata, then resampled onto the
+    CT grid using linear interpolation.
+
+    Parameters
+    ----------
+    dose_ds : pydicom.dataset.FileDataset
+        RTDOSE DICOM dataset providing dose geometry metadata:
+          • PixelSpacing (dy, dx) in mm
+          • GridFrameOffsetVector (for dz spacing) or SliceThickness
+          • ImagePositionPatient (dose grid origin in patient coords)
+    dose_arr : np.ndarray
+        Raw 3D dose array [Z,Y,X] in Gy (scaled by DoseGridScaling).
+    ct_img : sitk.Image
+        Reference CT SimpleITK image defining the target voxel grid
+        (spacing, size, orientation, origin).
+
+    Returns
+    -------
+    np.ndarray
+        Resampled dose array [Z,Y,X] in Gy, aligned voxel-for-voxel with
+        the CT grid.
+
+    Notes
+    -----
+    • Input spacing: DICOM stores PixelSpacing as (row=dy, col=dx).
+    • Z-spacing is derived from GridFrameOffsetVector if present,
+      otherwise from SliceThickness.
+    • SimpleITK requires spacing order = (x, y, z).
+    • Resampling uses linear interpolation (`sitk.sitkLinear`) with
+      default value = 0 outside the original grid.
+    • The output is cast to float32 for memory efficiency.
     """
     img = sitk.GetImageFromArray(dose_arr)  # [Z,Y,X]
 
@@ -1264,8 +2130,35 @@ def resample_dose_to_ct(dose_ds: pydicom.dataset.FileDataset,
 
 def _find_dcm(folder: str, modality: str) -> str:
     """
-    Return path to the first DICOM file in `folder` whose Modality equals `modality`.
-    Scans only the immediate files in `folder` (not recursive).
+    Find the first DICOM file in a folder matching a given Modality.
+
+    Parameters
+    ----------
+    folder : str
+        Path to the directory to search. Only immediate files are scanned
+        (no recursive subdirectory search).
+    modality : str
+        Expected DICOM Modality value (e.g., "CT", "RTDOSE", "RTSTRUCT", "RTPLAN").
+
+    Returns
+    -------
+    str
+        Absolute path to the first matching DICOM file.
+
+    Raises
+    ------
+    FileNotFoundError
+        If no readable DICOM in the folder matches the requested modality.
+
+    Notes
+    -----
+    • Reads DICOM headers with `stop_before_pixels=True` for speed and
+      robustness (pixel data is skipped).
+    • Files that are not valid DICOMs or that fail to parse are ignored.
+    • Returns only the **first match** encountered. If multiple files of the
+      same modality exist (e.g., multiple CT slices), only one is returned.
+    • For modalities with multiple files (e.g., CT series), downstream
+      functions should use series-based loaders instead of `_find_dcm`.
     """
     for fn in os.listdir(folder):
         p = os.path.join(folder, fn)
@@ -1281,7 +2174,31 @@ def _find_dcm(folder: str, modality: str) -> str:
 
 def load_dose(folder: str) -> Tuple[pydicom.dataset.FileDataset, np.ndarray]:
     """
-    Load RTDOSE from `folder`. Returns (pydicom_ds, dose_array[Z,Y,X] in Gy).
+    Load an RTDOSE DICOM file and return both the dataset and dose grid.
+
+    Parameters
+    ----------
+    folder : str
+        Path to a directory containing at least one RTDOSE DICOM file.
+
+    Returns
+    -------
+    tuple
+        (ds, dose)
+        • ds : pydicom.dataset.FileDataset
+          Parsed RTDOSE DICOM dataset with metadata.
+        • dose : np.ndarray
+          3D NumPy array [Z,Y,X] in Gray (Gy), scaled by DoseGridScaling.
+
+    Notes
+    -----
+    • Uses `_find_dcm(folder, "RTDOSE")` to locate the first RTDOSE file.
+    • Dose values are converted to Gy by multiplying `pixel_array`
+      with `DoseGridScaling`.
+    • Some RTDOSE datasets are 4D (time × Z × Y × X). In that case,
+      only the first frame (time=0) is returned.
+    • The returned dataset (`ds`) still contains all header fields and
+      should be used for geometry (PixelSpacing, GridFrameOffsetVector, etc.).
     """
     ds = pydicom.dcmread(_find_dcm(folder, "RTDOSE"))
     dose = ds.pixel_array * ds.DoseGridScaling

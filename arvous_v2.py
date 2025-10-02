@@ -163,7 +163,7 @@ def plot_combined_plot(CT_data, Dose_data, ROIs_data):
 
             ct_slice = get_ct[view](idx)
             dose_slice = get_dose[view](idx)
-            ct_slice = np.ma.masked_where(dose_slice <= 0, ct_slice)
+            # ct_slice = np.ma.masked_where(dose_slice <= 0, ct_slice)
 
 
             imgs_ct[i].set_data(ct_slice)
@@ -204,7 +204,7 @@ def plot_combined_plot(CT_data, Dose_data, ROIs_data):
                             slice_mask = vol[:, :, idx]
                         combined[slice_mask.astype(bool)] = j + 1
 
-                    combined = np.ma.masked_where(dose_slice <= 0, combined)
+                    # combined = np.ma.masked_where(dose_slice <= 0, combined)
                     roi_masks[i] = axes[i].imshow(
                         combined, cmap=cmap_roi, norm=norm_roi, alpha=0.5,
                         origin=origins[view], extent=view_extents[view]
@@ -305,6 +305,11 @@ def load_nifti_volume(path):
     """
     nii = nib.load(path)
     volume = nii.get_fdata().astype(np.float32)
+
+    volume = np.rot90(volume, k=-1, axes=(1, 2))
+    volume = np.rot90(volume, k=-1, axes=(0, 1))
+
+
     spacing = nii.header.get_zooms()[::-1]  # Z, Y, X
     origin = nii.affine[:3, 3][::-1]  # Z, Y, X
     return {
@@ -374,6 +379,9 @@ def save_volume_as_nifti(volume, spacing, output_path, affine_origin=(0, 0, 0)):
     affine = np.diag(list(spacing)[::-1] + [1])
     affine[:3, 3] = affine_origin[::-1]  # Put origin in correct position (X, Y, Z)
 
+    volume = np.rot90(volume, k=1, axes=(0, 1))
+    volume = np.rot90(volume, k=1, axes=(1, 2))
+
     nifti_img = nib.Nifti1Image(volume.astype(np.float32), affine)
     nib.save(nifti_img, output_path)
 
@@ -396,7 +404,7 @@ def save_volumes(CT_data, Dose_data, ROIs_data, output_path):
 
     for ROI_Number, ROI_entry in ROIs_data['ROIs'].items():
         # Save the volume
-        ROI_volume_path = os.path.join(ROIs_output_path, f"ROI_{ROI_Number}_volume.nii.gz")
+        ROI_volume_path = os.path.join(ROIs_output_path, f"ROI_{ROI_Number}_[{ROI_entry['Name']}]_volume.nii.gz")
         save_volume_as_nifti(volume=ROI_entry["Volume"], spacing=ROIs_data["Spacing"],
                              output_path=ROI_volume_path, affine_origin=ROIs_data["Position"])
 
@@ -827,6 +835,10 @@ class PreprocessWorker(QThread):
             # ------------------------
             self.log.emit("   🔄 Aligning Dose volume to CT volume...")
             Dose = preprocess_Dose_to_CT(Dose, CT)
+
+            # mask CT regions out of dose distribution
+            CT["Volume"] = np.ma.masked_where(Dose["Volume"] <= 0, CT["Volume"]).filled(0)
+
 
             # ------------------------
             # Save Outputs

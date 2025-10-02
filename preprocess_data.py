@@ -23,6 +23,10 @@ patients_files = [
     if os.path.isdir(patient_files_folder)
 ]
 
+patients_files = ["",
+                  "",
+                  ""]
+
 # ------------------------
 # Define resampling config
 # ------------------------
