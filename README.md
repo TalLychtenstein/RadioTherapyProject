@@ -21,7 +21,7 @@ or
 
 *cd RadioTherapyProject*
 
-*Python3 arvous_v2.py*
+*Python3 arvous_v3.py*
 
 
 
